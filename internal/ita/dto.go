@@ -29,19 +29,19 @@ type dtoDateFlight struct {
 }
 
 type dtoSegment struct {
-	FlightNo    string    `json:"flightNo"`
-	Carrier     string    `json:"carrier"`
-	DepPort     string    `json:"depPort"`
-	ArrPort     string    `json:"arrPort"`
-	DepTime     string    `json:"depTime"` // "00:35"
-	ArrTime     string    `json:"arrTime"`
-	DepDate     string    `json:"depDate"` // "2026-06-14"
-	ArrDate     string    `json:"arrDate"`
-	Plane       string    `json:"plane"`
-	DepTerm     string    `json:"depTerm"`
-	ArrTerm     string    `json:"arrTerm"`
-	CodeShare   bool      `json:"codeShare"`
-	Legs        []dtoLeg  `json:"legs"`
+	FlightNo  string   `json:"flightNo"`
+	Carrier   string   `json:"carrier"`
+	DepPort   string   `json:"depPort"`
+	ArrPort   string   `json:"arrPort"`
+	DepTime   string   `json:"depTime"` // "00:35"
+	ArrTime   string   `json:"arrTime"`
+	DepDate   string   `json:"depDate"` // "2026-06-14"
+	ArrDate   string   `json:"arrDate"`
+	Plane     string   `json:"plane"`
+	DepTerm   string   `json:"depTerm"`
+	ArrTerm   string   `json:"arrTerm"`
+	CodeShare bool     `json:"codeShare"`
+	Legs      []dtoLeg `json:"legs"`
 }
 
 type dtoLeg struct {
@@ -56,8 +56,8 @@ type dtoPrice struct {
 }
 
 type dtoCabin struct {
-	Name              string `json:"name"`              // RBD letter, "I"
-	Type              string `json:"type"`              // "Business", "Economy", ...
+	Name              string `json:"name"`               // RBD letter, "I"
+	Type              string `json:"type"`               // "Business", "Economy", ...
 	BookingClassAvail string `json:"bookingClassAvails"` // "6", "9"
-	BrandCode         string `json:"brandCode"`         // "JFFA"
+	BrandCode         string `json:"brandCode"`          // "JFFA"
 }

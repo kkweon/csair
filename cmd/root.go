@@ -2,9 +2,11 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -23,18 +25,44 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:           "csair",
-	Short:         "Search China Southern Airlines flights and seat availability",
+	Use:   "csair",
+	Short: "Search China Southern Airlines flights and seat availability",
+	Long: `csair searches China Southern Airlines (CZ) flights and shows the number of
+seats available per cabin for a route and date.
+
+Quickstart:
+  csair auth                          # one-time: mint the anti-bot token
+  csair search SFO CAN 2026-06-14     # search a route+date
+
+Run 'csair <command> --help' for command-specific flags.`,
+	Example: "  csair search SFO CAN 2026-06-14\n" +
+		"  csair search --from SFO --to CAN --date 2026-06-14 --cabin business --direct\n" +
+		"  csair search SFO CAN 2026-06-14 --json | jq",
 	SilenceUsage:  true,
 	SilenceErrors: true,
 }
 
 // Execute runs the root command and maps errors to documented exit codes.
 func Execute() {
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(clierr.ExitCode(err))
+	err := rootCmd.Execute()
+	if err == nil {
+		return
 	}
+	fmt.Fprintln(os.Stderr, "Error:", err)
+
+	usage := errors.Is(err, clierr.ErrUsage) ||
+		strings.HasPrefix(err.Error(), "unknown command") ||
+		strings.HasPrefix(err.Error(), "unknown flag") ||
+		strings.HasPrefix(err.Error(), "unknown shorthand")
+	if usage {
+		fmt.Fprintf(os.Stderr, "\nRun '%s --help' or '%s <command> --help' for usage.\n", rootCmd.Name(), rootCmd.Name())
+	}
+
+	code := clierr.ExitCode(err)
+	if usage && code == 1 {
+		code = 2
+	}
+	os.Exit(code)
 }
 
 func init() {
@@ -45,6 +73,11 @@ func init() {
 	pf.StringVar(&flagCurrency, "currency", "", "preferred display currency")
 	pf.BoolVarP(&flagVerbose, "verbose", "v", false, "verbose logging")
 	pf.StringVar(&cfgFile, "config", "", "config file (default ~/.config/csair/config.toml)")
+
+	// Turn flag-parse errors into typed usage errors with a help hint.
+	rootCmd.SetFlagErrorFunc(func(c *cobra.Command, ferr error) error {
+		return fmt.Errorf("%w: %v", clierr.ErrUsage, ferr)
+	})
 
 	cobra.OnInitialize(initConfig)
 	_ = viper.BindPFlag("currency", pf.Lookup("currency"))

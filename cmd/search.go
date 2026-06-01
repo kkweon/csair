@@ -21,11 +21,11 @@ import (
 )
 
 var (
-	sFrom, sTo, sDate      string
+	sFrom, sTo, sDate       string
 	sCabin, sCarrier, sSort string
-	sAdults, sChildren     int
-	sInfants, sMinSeats    int
-	sDirect                bool
+	sAdults, sChildren      int
+	sInfants, sMinSeats     int
+	sDirect                 bool
 )
 
 var searchCmd = &cobra.Command{
@@ -33,7 +33,12 @@ var searchCmd = &cobra.Command{
 	Short: "Search a route+date and show seats available per booking class",
 	Example: "  csair search SFO CAN 2026-06-14\n" +
 		"  csair search --from SFO --to CAN --date 2026-06-14 --cabin business --direct",
-	Args: cobra.MaximumNArgs(3),
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) > 3 {
+			return fmt.Errorf("%w: too many arguments — expected at most FROM TO DATE, got %d", clierr.ErrUsage, len(args))
+		}
+		return nil
+	},
 	RunE: runSearch,
 }
 
@@ -74,16 +79,36 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		date = args[2]
 	}
 	if from == "" || to == "" || date == "" {
-		return fmt.Errorf("%w: need FROM, TO and DATE (positional or --from/--to/--date)", clierr.ErrUsage)
+		return fmt.Errorf("%w: need FROM, TO and DATE\n  e.g. csair search SFO CAN 2026-06-14\n  or   csair search --from SFO --to CAN --date 2026-06-14", clierr.ErrUsage)
 	}
 	d, err := time.Parse("2006-01-02", date)
 	if err != nil {
-		return fmt.Errorf("%w: bad date %q (want YYYY-MM-DD)", clierr.ErrUsage, date)
+		return fmt.Errorf("%w: bad date %q — use YYYY-MM-DD, e.g. 2026-06-14", clierr.ErrUsage, date)
+	}
+	if _, err := cabinFromFlag(sCabin); err != nil {
+		return err
+	}
+	if !validSort(sSort) {
+		return fmt.Errorf("%w: invalid --sort %q (want price, duration or departure)", clierr.ErrUsage, sSort)
+	}
+	if sAdults < 1 {
+		return fmt.Errorf("%w: --adults must be at least 1", clierr.ErrUsage)
+	}
+	if sChildren < 0 || sInfants < 0 {
+		return fmt.Errorf("%w: passenger counts cannot be negative", clierr.ErrUsage)
+	}
+
+	origin, dest := strings.ToUpper(from), strings.ToUpper(to)
+	cat := airport.NewStatic()
+	for _, code := range []string{origin, dest} {
+		if _, err := cat.Country(code); err != nil {
+			return fmt.Errorf("%w: unknown airport code %q — use a 3-letter IATA code (e.g. SFO, CAN, PEK)", clierr.ErrUsage, code)
+		}
 	}
 
 	req := domain.SearchRequest{
-		Origin:      strings.ToUpper(from),
-		Destination: strings.ToUpper(to),
+		Origin:      origin,
+		Destination: dest,
 		Date:        d,
 		Pax:         domain.Pax{Adults: sAdults, Children: sChildren, Infants: sInfants},
 	}
@@ -158,7 +183,7 @@ func buildProvider(origin, dest string) (auth.Provider, error) {
 
 // filterResult applies --direct/--carrier/--cabin/--min-seats and --sort in place.
 func filterResult(res *domain.SearchResult) {
-	cabin := cabinFilter(sCabin)
+	cabin, _ := cabinFromFlag(sCabin) // already validated in runSearch
 	carrier := strings.ToUpper(sCarrier)
 
 	kept := res.Itineraries[:0]
@@ -179,19 +204,31 @@ func filterResult(res *domain.SearchResult) {
 	sortItineraries(res.Itineraries, sSort)
 }
 
-func cabinFilter(s string) domain.Cabin {
-	switch strings.ToLower(s) {
+// cabinFromFlag maps the --cabin value to a domain.Cabin ("" means "all"),
+// returning a usage error for anything unrecognized.
+func cabinFromFlag(s string) (domain.Cabin, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "all":
+		return "", nil
 	case "economy", "y":
-		return domain.CabinEconomy
-	case "premium", "w":
-		return domain.CabinPremiumEconomy
+		return domain.CabinEconomy, nil
+	case "premium", "premiumeconomy", "w":
+		return domain.CabinPremiumEconomy, nil
 	case "business", "c", "j":
-		return domain.CabinBusiness
+		return domain.CabinBusiness, nil
 	case "first", "f":
-		return domain.CabinFirst
+		return domain.CabinFirst, nil
 	default:
-		return "" // all
+		return "", fmt.Errorf("%w: invalid --cabin %q (want all, economy, premium, business or first)", clierr.ErrUsage, s)
 	}
+}
+
+func validSort(s string) bool {
+	switch s {
+	case "price", "duration", "departure":
+		return true
+	}
+	return false
 }
 
 func filterCabins(cbs []domain.CabinAvail, cabin domain.Cabin) []domain.CabinAvail {

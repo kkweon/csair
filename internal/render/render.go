@@ -220,7 +220,7 @@ type itineraryView struct {
 
 type cabinView struct {
 	Cabin   string      `json:"cabin"`
-	Seats   int         `json:"seats"`   // true availability = max tier
+	Seats   int         `json:"seats"` // true availability = max tier
 	AtLeast bool        `json:"atLeast"`
 	From    *moneyView  `json:"from,omitempty"`
 	Classes []classView `json:"classes"` // per-RBD detail
