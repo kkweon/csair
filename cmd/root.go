@@ -21,6 +21,7 @@ var (
 	flagCSV      bool
 	flagCurrency string
 	flagVerbose  bool
+	flagReauth   bool
 	cfgFile      string
 )
 
@@ -72,6 +73,7 @@ func init() {
 	pf.BoolVar(&flagCSV, "csv", false, "output CSV")
 	pf.StringVar(&flagCurrency, "currency", "", "preferred display currency")
 	pf.BoolVarP(&flagVerbose, "verbose", "v", false, "verbose logging")
+	pf.BoolVar(&flagReauth, "reauth", true, "on an anti-bot block, re-run the browser auth and retry once")
 	pf.StringVar(&cfgFile, "config", "", "config file (default ~/.config/csair/config.toml)")
 
 	// Turn flag-parse errors into typed usage errors with a help hint.

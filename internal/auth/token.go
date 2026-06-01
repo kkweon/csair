@@ -9,11 +9,13 @@ import (
 	"github.com/kkweon/csair/internal/clierr"
 )
 
-// Token holds the Aliyun anti-bot cookies harvested from a browser session.
+// Token holds the anti-bot cookies harvested from a browser session, plus the
+// full cookie set from that session (so requests look like that real browser).
 type Token struct {
-	AcwScV2 string    // acw_sc__v2
-	AcwTc   string    // acw_tc
-	Expires time.Time // zero = unknown
+	AcwScV2 string            // acw_sc__v2
+	AcwTc   string            // acw_tc
+	Cookies map[string]string `json:",omitempty"` // all csair.com cookies from the session
+	Expires time.Time         // zero = unknown
 }
 
 // Valid reports whether the token looks usable right now.

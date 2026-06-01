@@ -49,15 +49,20 @@ func New(tok auth.Token) (*Client, error) {
 		return nil, err
 	}
 	base, _ := url.Parse(domainBase)
-	cookies := []*http.Cookie{
-		{Name: "Site", Value: "US"},
-		{Name: "language", Value: "zh_us"},
+	set := map[string]string{"Site": "US", "language": "zh_us"}
+	// Prefer the full cookie set captured from the real browser session.
+	for k, v := range tok.Cookies {
+		set[k] = v
 	}
 	if tok.AcwScV2 != "" {
-		cookies = append(cookies, &http.Cookie{Name: "acw_sc__v2", Value: tok.AcwScV2})
+		set["acw_sc__v2"] = tok.AcwScV2
 	}
 	if tok.AcwTc != "" {
-		cookies = append(cookies, &http.Cookie{Name: "acw_tc", Value: tok.AcwTc})
+		set["acw_tc"] = tok.AcwTc
+	}
+	cookies := make([]*http.Cookie, 0, len(set))
+	for k, v := range set {
+		cookies = append(cookies, &http.Cookie{Name: k, Value: v})
 	}
 	jar.SetCookies(base, cookies)
 
@@ -124,6 +129,7 @@ func looksHTML(b []byte) bool {
 func (c *Client) do(req *http.Request) ([]byte, error) {
 	req.Header.Set("Accept", "application/json, text/plain, */*")
 	req.Header.Set("Origin", domainBase)
+	req.Header.Set("Priority", "u=1, i")
 	if req.Header.Get("Referer") == "" {
 		req.Header.Set("Referer", c.referer)
 	}

@@ -100,6 +100,28 @@ type CalendarEntry struct {
 	Lowest Money
 }
 
+// DateOption is one itinerary on a specific date together with the availability
+// for the cabin of interest — the unit of a range scan.
+type DateOption struct {
+	Date      time.Time
+	Itinerary Itinerary
+	Cabin     CabinAvail
+}
+
+// OpenClasses is the count of distinct open booking classes in the cabin — a
+// proxy for how empty the flight is that the 9-seat cap can't express.
+func (o DateOption) OpenClasses() int { return len(o.Cabin.Classes) }
+
+// ScanResult ranks date options across a range for a route+cabin.
+type ScanResult struct {
+	Origin, Destination string
+	Cabin               Cabin
+	Start, End          time.Time
+	DirectOnly          bool
+	Options             []DateOption // ranked best-first by the caller
+	NoAvailability      []time.Time  // dates with no qualifying option
+}
+
 // CabinRank orders cabins from premium to economy for stable display.
 func CabinRank(c Cabin) int {
 	switch c {

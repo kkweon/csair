@@ -71,6 +71,30 @@ csair search SFO CAN 2026-06-14 --cabin business --json | jq
 Force a format with `--json`, `--csv`, or `--table`. JSON/CSV include the per-RBD
 fare-tier breakdown under each cabin.
 
+### Scan a date range (standby)
+
+`scan` searches each date in a range and **ranks the dates by how open the flights
+are** — handy for standby/non-rev travel where you want the emptiest dates:
+
+```sh
+csair scan SFO CAN 2026-06-10..2026-06-20 --cabin economy
+```
+```
+SFO → CAN · direct · Economy · 2026-06-10 → 2026-06-20
+
+DATE        DOW  FLIGHT  DEP→ARR      SEATS  OPEN CLASSES  FROM
+2026-06-14  Sun  CZ658   00:35→06:20  9+     2 (A/M)       USD 1284
+…
+no Economy availability: 06-15, 06-16
+```
+
+Direct-only by default (`--any` to include connections), `--cabin` selects the
+cabin to rank, range capped at 31 days. Ranking favors the **number of open
+booking classes** first — a better emptiness signal than the seat count, which
+the engine caps at 9 (`9+` = "9 or more"). Note: this is *bookable inventory*, not
+the airline's true non-rev seat count (which isn't public) — but open-class depth
+is a strong proxy for an empty flight.
+
 ### Auth / token
 
 The `/ita` engine is gated only by the Aliyun `acw_sc__v2` cookie. `csair auth`
@@ -83,9 +107,15 @@ csair auth --status   # show the cached token + expiry
 csair auth --clear    # forget it
 ```
 
-`search` auto-bootstraps when the token is missing/expired (and re-bootstraps once
-if a request gets blocked), unless you pass `--no-bootstrap`. To supply a token
-yourself instead, use `--acw <token>` or the `CSAIR_ACW` env var.
+`search`/`scan` auto-bootstrap when the token is missing/expired, and on an
+anti-bot block they **re-run the browser auth and retry once** (`--reauth`, on by
+default; disable with `--no-bootstrap`). To supply a token yourself instead, use
+`--acw <token>` or the `CSAIR_ACW` env var.
+
+To stay human-like and avoid blocks, requests reuse the **full cookie set** from
+the bootstrap browser session, send a complete Chrome header set, run paced with
+jitter, and the bootstrap browser masks common automation tells (`navigator.webdriver`,
+languages, plugins).
 
 ### Environment
 

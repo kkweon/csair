@@ -39,27 +39,30 @@ var authCmd = &cobra.Command{
 				fmt.Println("no cached token at", p.CachePath)
 				return nil
 			}
-			fmt.Printf("acw_sc__v2: %s…\nexpires:    %s (valid=%v)\ncache:      %s\n",
-				head(t.AcwScV2, 12), t.Expires.Format(time.RFC3339), t.Valid(), p.CachePath)
+			fmt.Printf("cookies:    %d\nacw_sc__v2: %s\nexpires:    %s (valid=%v)\ncache:      %s\n",
+				len(t.Cookies), acwStr(t), t.Expires.Format(time.RFC3339), t.Valid(), p.CachePath)
 			return nil
 		}
 
-		fmt.Fprintln(cmd.ErrOrStderr(), "bootstrapping acw token via Chrome…")
+		fmt.Fprintln(cmd.ErrOrStderr(), "bootstrapping session via Chrome…")
 		t, err := p.Refresh(cmd.Context())
 		if err != nil {
 			return err
 		}
-		fmt.Printf("ok — harvested acw_sc__v2 (%s…), expires %s\ncached to %s\n",
-			head(t.AcwScV2, 12), t.Expires.Format(time.RFC3339), p.CachePath)
+		fmt.Printf("ok — session cached (%d cookies, acw_sc__v2: %s), expires %s\n%s\n",
+			len(t.Cookies), acwStr(t), t.Expires.Format(time.RFC3339), p.CachePath)
 		return nil
 	},
 }
 
-func head(s string, n int) string {
-	if len(s) <= n {
-		return s
+func acwStr(t auth.Token) string {
+	if t.AcwScV2 == "" {
+		return "none (session-only)"
 	}
-	return s[:n]
+	if len(t.AcwScV2) > 12 {
+		return t.AcwScV2[:12] + "…"
+	}
+	return t.AcwScV2
 }
 
 func init() {

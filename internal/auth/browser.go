@@ -6,14 +6,34 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/chromedp/cdproto/network"
+	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 
 	"github.com/kkweon/csair/internal/clierr"
 )
+
+// stealthJS masks the most obvious automation tells before any page script runs.
+const stealthJS = `
+Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+Object.defineProperty(navigator, 'languages', {get: () => ['zh-CN','zh','en']});
+Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
+window.chrome = window.chrome || {runtime: {}};
+`
+
+// challengeJS issues a same-origin protected request so antidom.js runs the
+// Aliyun challenge and sets acw_sc__v2. antidom wraps XMLHttpRequest (not fetch),
+// so we must use XHR for the interception to fire. Returns immediately.
+const challengeJS = `(function(){try{` +
+	`var x=new XMLHttpRequest();` +
+	`x.open('POST','/ita/intl/app',true);` +
+	`x.setRequestHeader('Content-Type','application/x-www-form-urlencoded;charset=UTF-8');` +
+	`x.send('language=zh&country=zh&m=0&flexible=1&adt=1&cnn=0&inf=0&dep[]=SFO&depArea[]=US&arr[]=CAN&arrArea[]=CN&date[]=2026-12-01');` +
+	`}catch(e){}return 1;})()`
 
 const browserUA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
 	"(KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
@@ -96,10 +116,12 @@ func (b *BrowserProvider) bootstrap(ctx context.Context) (Token, error) {
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", b.Headless),
 		chromedp.Flag("disable-blink-features", "AutomationControlled"),
+		chromedp.Flag("disable-infobars", true),
 		chromedp.Flag("lang", "zh-CN,zh"),
 		chromedp.NoSandbox,
 		chromedp.Flag("disable-dev-shm-usage", true),
 		chromedp.Flag("disable-gpu", true),
+		chromedp.WindowSize(1280, 800),
 		chromedp.UserAgent(browserUA),
 	)
 	if path := os.Getenv("CSAIR_CHROME"); path != "" {
@@ -113,14 +135,25 @@ func (b *BrowserProvider) bootstrap(ctx context.Context) (Token, error) {
 	defer cancelTO()
 
 	var cookies []*network.Cookie
+	var pageURL, title string
 	err := chromedp.Run(bctx,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			_, err := page.AddScriptToEvaluateOnNewDocument(stealthJS).Do(ctx)
+			return err
+		}),
 		network.Enable(),
 		chromedp.Navigate(b.flightsURL()),
+		chromedp.Sleep(2*time.Second), // let antidom.js load
 		chromedp.ActionFunc(func(ctx context.Context) error {
-			deadline := time.Now().Add(50 * time.Second)
-			for {
-				cs, err := network.GetCookies().Do(ctx)
-				if err == nil {
+			deadline := time.Now().Add(55 * time.Second)
+			var dummy int
+			for i := 0; ; i++ {
+				// Actively provoke the Aliyun challenge: a protected XHR makes
+				// antidom.js compute and set acw_sc__v2. Re-trigger periodically.
+				if i%5 == 0 {
+					_ = chromedp.Evaluate(challengeJS, &dummy).Do(ctx)
+				}
+				if cs, err := network.GetCookies().Do(ctx); err == nil {
 					cookies = cs
 					if cookieVal(cs, "acw_sc__v2") != "" {
 						return nil
@@ -132,20 +165,47 @@ func (b *BrowserProvider) bootstrap(ctx context.Context) (Token, error) {
 				time.Sleep(time.Second)
 			}
 		}),
+		chromedp.Location(&pageURL),
+		chromedp.Title(&title),
 	)
 	if err != nil {
 		return Token{}, fmt.Errorf("browser bootstrap: %w", err)
 	}
 
-	sc := cookieVal(cookies, "acw_sc__v2")
-	if sc == "" {
-		return Token{}, fmt.Errorf("%w: browser did not yield acw_sc__v2 (try 'csair auth --headed')", clierr.ErrBlocked)
+	all := map[string]string{}
+	names := make([]string, 0, len(cookies))
+	for _, c := range cookies {
+		if strings.Contains(c.Domain, "csair.com") {
+			all[c.Name] = c.Value
+			names = append(names, c.Name)
+		}
+	}
+	sort.Strings(names)
+
+	// A real session is usable even without acw_sc__v2 (the WAF only sets it when
+	// it challenges). Require *some* session cookie; acw is a bonus.
+	hasSession := all["acw_sc__v2"] != "" || all["JSESSIONID"] != "" ||
+		all["cz-book"] != "" || all["acw_tc"] != ""
+	if !hasSession {
+		return Token{}, fmt.Errorf("%w: bootstrap got no session cookies (url=%s title=%q cookies=%v) — try 'csair auth --headed'",
+			clierr.ErrBlocked, trimURL(pageURL), title, names)
+	}
+	if all["acw_sc__v2"] == "" {
+		fmt.Fprintf(os.Stderr, "note: proceeding without acw_sc__v2 (session has %d cookies: %s)\n", len(names), strings.Join(names, ", "))
 	}
 	return Token{
-		AcwScV2: sc,
-		AcwTc:   cookieVal(cookies, "acw_tc"),
+		AcwScV2: all["acw_sc__v2"],
+		AcwTc:   all["acw_tc"],
+		Cookies: all,
 		Expires: time.Now().Add(b.TTL),
 	}, nil
+}
+
+func trimURL(u string) string {
+	if i := strings.IndexByte(u, '?'); i > 0 {
+		return u[:i]
+	}
+	return u
 }
 
 // flightsURL is the /ita deep-link that creates a search from a route token and

@@ -127,12 +127,10 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	res, err := doSearch(ctx, tok, req)
-	if isStale(err) {
-		if r, ok := prov.(auth.Refresher); ok {
-			fmt.Fprintln(os.Stderr, "token blocked — re-bootstrapping and retrying…")
-			if fresh, rerr := r.Refresh(ctx); rerr == nil {
-				res, err = doSearch(ctx, fresh, req)
-			}
+	if isStale(err) && canReauth() {
+		fmt.Fprintln(os.Stderr, "blocked by anti-bot — re-running browser auth and retrying…")
+		if fresh, rerr := reauthToken(ctx, req.Origin, req.Destination); rerr == nil {
+			res, err = doSearch(ctx, fresh, req)
 		}
 	}
 	if err != nil {
@@ -144,12 +142,35 @@ func runSearch(cmd *cobra.Command, args []string) error {
 }
 
 func doSearch(ctx context.Context, tok auth.Token, req domain.SearchRequest) (*domain.SearchResult, error) {
+	q, err := newQueryService(tok)
+	if err != nil {
+		return nil, err
+	}
+	return q.Search(ctx, req)
+}
+
+// newQueryService wires a paced transport + parser + catalog for one session.
+func newQueryService(tok auth.Token) (ita.QueryService, error) {
 	hc, err := transport.New(tok)
 	if err != nil {
 		return nil, err
 	}
-	q := ita.NewQueryService(hc, ita.NewParser(), airport.NewStatic())
-	return q.Search(ctx, req)
+	return ita.NewQueryService(hc, ita.NewParser(), airport.NewStatic()), nil
+}
+
+// canReauth reports whether an anti-bot block should trigger a fresh browser
+// bootstrap (--reauth, on by default) unless bootstrapping is disabled.
+func canReauth() bool { return flagReauth && !sNoBootstrap }
+
+// reauthToken force-mints a fresh token via the browser, regardless of where
+// the original token came from (cache, env, or --acw).
+func reauthToken(ctx context.Context, origin, dest string) (auth.Token, error) {
+	bp := auth.NewBrowserProvider()
+	bp.Headless = !sHeaded
+	if origin != "" && dest != "" {
+		bp.Route = origin + "-" + dest
+	}
+	return bp.Refresh(ctx)
 }
 
 func isStale(err error) bool {
