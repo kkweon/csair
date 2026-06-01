@@ -49,6 +49,15 @@ data.data.dateFlights[]            # one per itinerary option
       .brandCode       # fare brand (e.g. JFFA, JSTA, YSTA)
 ```
 
+### Availability semantics
+
+A cabin is sold through several fare tiers (e.g. business 优惠/灵活/尊享), each its
+own booking class (RBD) with its own `bookingClassAvails`. The **true seats
+available for the cabin is the maximum across those tiers** — buying the top
+(most expensive) fare covers the cheaper seats. So `CabinAvail.Seats = max(tiers)`
+and `From = cheapest tier`; the per-RBD breakdown is kept as detail. Example:
+business I=6 ($4,029) + C=8 ($6,660) → **Business: 8 seats, from $4,029**.
+
 ## Auth / anti-bot
 
 No WAF and no interactive captcha. The only gate is the Aliyun cookie **`acw_sc__v2`**
