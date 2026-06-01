@@ -63,7 +63,7 @@ func renderTable(w io.Writer, res *domain.SearchResult) error {
 		r.Origin, r.Destination, r.Date.Format("2006-01-02"), maxi(r.Pax.Adults, 1))
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "FLIGHT\tROUTING\tDEP\tARR\tDUR\tSTOPS\tSEATS (F/C/W/Y)\tFROM")
+	fmt.Fprintln(tw, "FLIGHT\tROUTING\tDEP\tARR\tDUR\tSTOPS\tSEATS\tFROM")
 	for _, it := range res.Itineraries {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			flights(it), routing(it), clock(depart(it)), clock(arrive(it)),
@@ -157,11 +157,18 @@ func stops(n int) string {
 }
 
 var cabinLabel = map[domain.Cabin]string{
-	domain.CabinFirst: "F", domain.CabinBusiness: "C",
-	domain.CabinPremiumEconomy: "W", domain.CabinEconomy: "Y",
+	domain.CabinFirst: "First", domain.CabinBusiness: "Business",
+	domain.CabinPremiumEconomy: "Premium", domain.CabinEconomy: "Economy",
 }
 
-// cabins renders one headline seat count per cabin, e.g. "C8 Y9+".
+func cabinName(c domain.Cabin) string {
+	if s, ok := cabinLabel[c]; ok {
+		return s
+	}
+	return string(c)
+}
+
+// cabins renders one headline seat count per cabin, e.g. "Business 8 · Economy 9+".
 func cabins(cbs []domain.CabinAvail) string {
 	var parts []string
 	for _, cb := range cbs { // already cabin-rank sorted by the parser
@@ -169,12 +176,12 @@ func cabins(cbs []domain.CabinAvail) string {
 		if cb.AtLeast {
 			n += "+"
 		}
-		parts = append(parts, cabinLabel[cb.Cabin]+n)
+		parts = append(parts, cabinName(cb.Cabin)+" "+n)
 	}
 	if len(parts) == 0 {
 		return "--"
 	}
-	return strings.Join(parts, " ")
+	return strings.Join(parts, " · ")
 }
 
 func money(m domain.Money) string {
