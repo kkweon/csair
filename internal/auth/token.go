@@ -29,6 +29,12 @@ type Provider interface {
 	Token(ctx context.Context) (Token, error)
 }
 
+// Refresher is an optional capability: force-mint a new token (e.g. after a
+// token is blocked mid-flight).
+type Refresher interface {
+	Refresh(ctx context.Context) (Token, error)
+}
+
 // EnvProvider reads the token from environment variables:
 //
 //	CSAIR_ACW     -> acw_sc__v2 (required)

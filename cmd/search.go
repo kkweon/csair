@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -46,10 +48,19 @@ func init() {
 	f.StringVar(&sCabin, "cabin", "all", "economy|premium|business|first|all")
 	f.StringVar(&sCarrier, "carrier", "", "only this marketing carrier, e.g. CZ")
 	f.BoolVar(&sDirect, "direct", false, "nonstop only")
-	f.IntVar(&sMinSeats, "min-seats", 0, "only classes with >= N seats")
+	f.IntVar(&sMinSeats, "min-seats", 0, "only cabins with >= N seats")
 	f.StringVar(&sSort, "sort", "price", "price|duration|departure")
+	f.StringVar(&sAcw, "acw", "", "acw_sc__v2 token (else cache/env/bootstrap)")
+	f.BoolVar(&sNoBootstrap, "no-bootstrap", false, "do not auto-launch the browser bootstrap")
+	f.BoolVar(&sHeaded, "headed", false, "show the browser window during bootstrap")
 	rootCmd.AddCommand(searchCmd)
 }
+
+var (
+	sAcw         string
+	sNoBootstrap bool
+	sHeaded      bool
+)
 
 func runSearch(cmd *cobra.Command, args []string) error {
 	from, to, date := sFrom, sTo, sDate
@@ -78,24 +89,71 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	ctx := cmd.Context()
-	tok, err := auth.EnvProvider{}.Token(ctx)
+	prov, err := buildProvider(req.Origin, req.Destination)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "no acw token — run 'csair auth' (bootstrap) or set CSAIR_ACW=<acw_sc__v2>")
 		return err
 	}
-	hc, err := transport.New(tok)
+	tok, err := prov.Token(ctx)
 	if err != nil {
+		if errors.Is(err, clierr.ErrTokenExpired) {
+			fmt.Fprintln(os.Stderr, "no acw token — run 'csair auth' or set CSAIR_ACW=<acw_sc__v2>")
+		}
 		return err
 	}
 
-	q := ita.NewQueryService(hc, ita.NewParser(), airport.NewStatic())
-	res, err := q.Search(ctx, req)
+	res, err := doSearch(ctx, tok, req)
+	if isStale(err) {
+		if r, ok := prov.(auth.Refresher); ok {
+			fmt.Fprintln(os.Stderr, "token blocked — re-bootstrapping and retrying…")
+			if fresh, rerr := r.Refresh(ctx); rerr == nil {
+				res, err = doSearch(ctx, fresh, req)
+			}
+		}
+	}
 	if err != nil {
 		return err
 	}
 
 	filterResult(res)
 	return render.Result(os.Stdout, res, outputMode())
+}
+
+func doSearch(ctx context.Context, tok auth.Token, req domain.SearchRequest) (*domain.SearchResult, error) {
+	hc, err := transport.New(tok)
+	if err != nil {
+		return nil, err
+	}
+	q := ita.NewQueryService(hc, ita.NewParser(), airport.NewStatic())
+	return q.Search(ctx, req)
+}
+
+func isStale(err error) bool {
+	return errors.Is(err, clierr.ErrBlocked) || errors.Is(err, clierr.ErrTokenExpired)
+}
+
+// buildProvider selects the token source: --acw flag, then (unless
+// --no-bootstrap) the browser cache+bootstrap, else env, else cache-only.
+func buildProvider(origin, dest string) (auth.Provider, error) {
+	if sAcw != "" {
+		return auth.Static{T: auth.Token{AcwScV2: sAcw, AcwTc: os.Getenv("CSAIR_ACW_TC")}}, nil
+	}
+	bp := auth.NewBrowserProvider()
+	bp.Headless = !sHeaded
+	bp.Route = origin + "-" + dest
+
+	if sNoBootstrap {
+		if t, ok := bp.Load(); ok && t.Valid() {
+			return auth.Static{T: t}, nil
+		}
+		if t, err := (auth.EnvProvider{}).Token(context.Background()); err == nil {
+			return auth.Static{T: t}, nil
+		}
+		return nil, clierr.ErrTokenExpired
+	}
+	if os.Getenv("CSAIR_ACW") != "" {
+		return auth.EnvProvider{}, nil
+	}
+	return bp, nil
 }
 
 // filterResult applies --direct/--carrier/--cabin/--min-seats and --sort in place.
