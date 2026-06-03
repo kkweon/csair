@@ -103,32 +103,70 @@ func TestBookingURL(t *testing.T) {
 	}
 }
 
-func TestChangeBody(t *testing.T) {
-	prev := biz("SFO", "CAN", "2026-06-14", []flightSeats{
+func TestChangeDigest(t *testing.T) {
+	// Two targets: one changed (06-14), one unchanged (06-10, excluded).
+	prev14 := biz("SFO", "CAN", "2026-06-14", []flightSeats{
 		{"CZ658", 8}, {"CZ330", 5}, {"CZ302", 9},
 	})
-	cur := biz("SFO", "CAN", "2026-06-14", []flightSeats{
+	cur14 := biz("SFO", "CAN", "2026-06-14", []flightSeats{
 		{"CZ658", 7}, {"CZ660+CZ3368", 2}, {"CZ302", 9}, {"CZ400", -1},
 	})
-	want := `SFO → CAN  ·  2026-06-14  ·  Business
-As of 2026-06-03 09:07 PDT
+	same10 := biz("SFO", "CAN", "2026-06-10", []flightSeats{{"CZ327", 9}})
 
+	items := []DiffItem{
+		{Prev: same10, Cur: same10}, // unchanged → omitted
+		{Prev: prev14, Cur: cur14},  // changed
+	}
+	want := `Business seat changes  ·  As of 2026-06-03 09:07 PDT
+
+SFO → CAN  ·  2026-06-14  ·  Business
 Changed:
   CZ330:         5 → (gone)
   CZ400:         (new) → ⚠️ NO SEATS
   CZ658:         8 → 7 seats
   CZ660+CZ3368:  (new) → 2 seats
-
 All business seats now:
   CZ302:         9 seats
   CZ658:         7 seats
   CZ660+CZ3368:  2 seats
   CZ400:         ⚠️ NO SEATS
-
 Book: https://b2c.csair.com/ita/intl/zh/flights?flex=1&m=0&p=100&t=SFO-CAN-20260614&egs=ITA,ITA&open=1
 `
-	if got := ChangeBody(prev, cur, fixedNow); got != want {
-		t.Errorf("ChangeBody mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	if got := ChangeDigest(items, fixedNow); got != want {
+		t.Errorf("ChangeDigest mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestChangeDigestEmpty(t *testing.T) {
+	s := biz("SFO", "CAN", "2026-06-14", []flightSeats{{"CZ658", 7}})
+	if got := ChangeDigest([]DiffItem{{Prev: s, Cur: s}}, fixedNow); got != "" {
+		t.Errorf("ChangeDigest with no changes = %q, want empty", got)
+	}
+}
+
+func TestConfig(t *testing.T) {
+	c := Config{
+		SnapshotDir: "data/monitor",
+		Targets: []Target{
+			{From: "SFO", To: "CAN", Date: "2026-06-14"},
+		},
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	if got, want := c.SnapshotPath(c.Targets[0]), "data/monitor/SFO-CAN-2026-06-14.json"; got != want {
+		t.Errorf("SnapshotPath = %q, want %q", got, want)
+	}
+
+	bad := []Config{
+		{Targets: []Target{{From: "SFO", To: "CAN", Date: "2026-06-14"}}}, // no dir
+		{SnapshotDir: "d"}, // no targets
+		{SnapshotDir: "d", Targets: []Target{{From: "SFO", To: "CAN"}}}, // missing date
+	}
+	for i, c := range bad {
+		if err := c.Validate(); err == nil {
+			t.Errorf("bad[%d] Validate = nil, want error", i)
+		}
 	}
 }
 

@@ -133,23 +133,41 @@ func BookingURL(origin, dest, date string) string {
 		origin, dest, ymd)
 }
 
-// ChangeBody renders the per-date change email: the route/date header, an "as
-// of" stamp, the changed flights (old → new, with (new)/(gone) and a NO SEATS
-// flag at zero), the full current seat map, and a booking link.
-func ChangeBody(prev, cur Snapshot, now time.Time) string {
-	var b strings.Builder
-	fmt.Fprintln(&b, headerLine(cur))
-	fmt.Fprintln(&b, asOfLine(now))
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "Changed:")
-	for _, ch := range Diff(prev, cur) {
-		fmt.Fprintln(&b, changeLine(ch))
+// DiffItem pairs a stored snapshot with the freshly-fetched one for a single
+// monitored target, the unit ChangeDigest reports on.
+type DiffItem struct {
+	Prev Snapshot
+	Cur  Snapshot
+}
+
+// ChangeDigest renders the combined change email across all monitored targets:
+// one "as of" stamp, then a section (header, changed flights, full current seat
+// map, booking link) for every target whose business seats moved. Targets with
+// no change are omitted. It returns "" when nothing changed anywhere — the
+// caller treats empty output as "no email".
+func ChangeDigest(items []DiffItem, now time.Time) string {
+	var changed []DiffItem
+	for _, it := range items {
+		if len(Diff(it.Prev, it.Cur)) > 0 {
+			changed = append(changed, it)
+		}
 	}
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "All business seats now:")
-	writeSeatLines(&b, cur)
-	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "Book: %s\n", BookingURL(cur.Origin, cur.Destination, cur.Date))
+	if len(changed) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Business seat changes  ·  %s\n", asOfLine(now))
+	for _, it := range changed {
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, headerLine(it.Cur))
+		fmt.Fprintln(&b, "Changed:")
+		for _, ch := range Diff(it.Prev, it.Cur) {
+			fmt.Fprintln(&b, changeLine(ch))
+		}
+		fmt.Fprintln(&b, "All business seats now:")
+		writeSeatLines(&b, it.Cur)
+		fmt.Fprintf(&b, "Book: %s\n", BookingURL(it.Cur.Origin, it.Cur.Destination, it.Cur.Date))
+	}
 	return b.String()
 }
 
