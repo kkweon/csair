@@ -73,12 +73,12 @@ jobs:
     if: needs.setup.outputs.run == 'true' && needs.setup.outputs.mode == 'monitor'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version: "1.26"
           cache: true
-      - uses: browser-actions/setup-chrome@v1
+      - uses: browser-actions/setup-chrome@v2
         id: chrome
       - name: Resolve Chrome
         run: |
@@ -95,7 +95,7 @@ jobs:
         # outputs email/subject/body_file. Non-zero on a block → later steps skip.
       - name: Send email
         if: steps.run.outputs.email == 'true'
-        uses: dawidd6/action-send-mail@v3
+        uses: dawidd6/action-send-mail@v17
         with:
           server_address: smtp.gmail.com
           server_port: 465
@@ -126,12 +126,12 @@ jobs:
     if: needs.setup.outputs.run == 'true' && needs.setup.outputs.mode == 'status'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version: "1.26"
           cache: true
-      - uses: browser-actions/setup-chrome@v1
+      - uses: browser-actions/setup-chrome@v2
         id: chrome
       - name: Resolve Chrome
         run: |
@@ -146,7 +146,7 @@ jobs:
         run: scripts/report-mail.sh status
       - name: Send email
         if: steps.run.outputs.email == 'true'
-        uses: dawidd6/action-send-mail@v3
+        uses: dawidd6/action-send-mail@v17
         with:
           server_address: smtp.gmail.com
           server_port: 465
