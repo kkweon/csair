@@ -22,6 +22,7 @@ var (
 	flagCurrency string
 	flagVerbose  bool
 	flagReauth   bool
+	flagAttach   string
 	cfgFile      string
 )
 
@@ -74,6 +75,7 @@ func init() {
 	pf.StringVar(&flagCurrency, "currency", "", "preferred display currency")
 	pf.BoolVarP(&flagVerbose, "verbose", "v", false, "verbose logging")
 	pf.BoolVar(&flagReauth, "reauth", true, "on an anti-bot block, re-run the browser auth and retry once")
+	pf.StringVar(&flagAttach, "attach", "", "harvest the session from YOUR Chrome at this devtools port/URL (e.g. 9222)")
 	pf.StringVar(&cfgFile, "config", "", "config file (default ~/.config/csair/config.toml)")
 
 	// Turn flag-parse errors into typed usage errors with a help hint.

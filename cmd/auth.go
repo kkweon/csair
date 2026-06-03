@@ -22,6 +22,7 @@ var authCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		p := auth.NewBrowserProvider()
 		p.Headless = !authHeaded
+		p.Attach = flagAttach
 		if authRoute != "" {
 			p.Route = authRoute
 		}
@@ -44,7 +45,11 @@ var authCmd = &cobra.Command{
 			return nil
 		}
 
-		fmt.Fprintln(cmd.ErrOrStderr(), "bootstrapping session via Chrome…")
+		if flagAttach != "" {
+			fmt.Fprintf(cmd.ErrOrStderr(), "reading session from your Chrome at %s…\n", flagAttach)
+		} else {
+			fmt.Fprintln(cmd.ErrOrStderr(), "bootstrapping session via Chrome…")
+		}
 		t, err := p.Refresh(cmd.Context())
 		if err != nil {
 			return err

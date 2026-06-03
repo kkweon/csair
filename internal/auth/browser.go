@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/cdproto/page"
+	"github.com/chromedp/cdproto/storage"
 	"github.com/chromedp/chromedp"
 
 	"github.com/kkweon/csair/internal/clierr"
@@ -44,6 +46,7 @@ const browserUA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
 type BrowserProvider struct {
 	Route     string        // throwaway route to trigger a search, e.g. "SFO-CAN"
 	Headless  bool          // false shows the window (use if headless is challenged)
+	Attach    string        // devtools port/URL of YOUR Chrome to harvest from (e.g. "9222")
 	TTL       time.Duration // how long a harvested token is treated as fresh
 	CachePath string
 }
@@ -113,6 +116,9 @@ func (b *BrowserProvider) save(t Token) {
 }
 
 func (b *BrowserProvider) bootstrap(ctx context.Context) (Token, error) {
+	if b.Attach != "" {
+		return b.attachHarvest(ctx)
+	}
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", b.Headless),
 		chromedp.Flag("disable-blink-features", "AutomationControlled"),
@@ -199,6 +205,85 @@ func (b *BrowserProvider) bootstrap(ctx context.Context) (Token, error) {
 		Cookies: all,
 		Expires: time.Now().Add(b.TTL),
 	}, nil
+}
+
+// attachHarvest reads the session from an already-running Chrome (yours), which
+// has solved any captcha as a human. We only read cookies — no automation that
+// the challenge could detect.
+func (b *BrowserProvider) attachHarvest(ctx context.Context) (Token, error) {
+	wsURL, err := devtoolsWS(b.Attach)
+	if err != nil {
+		return Token{}, err
+	}
+	alloc, cancel := chromedp.NewRemoteAllocator(ctx, wsURL)
+	defer cancel()
+	bctx, cancel2 := chromedp.NewContext(alloc)
+	defer cancel2()
+	bctx, cancelTO := context.WithTimeout(bctx, 30*time.Second)
+	defer cancelTO()
+
+	var cookies []*network.Cookie
+	err = chromedp.Run(bctx, chromedp.ActionFunc(func(ctx context.Context) error {
+		cs, e := storage.GetCookies().Do(ctx) // all browser cookies (incl. httpOnly)
+		cookies = cs
+		return e
+	}))
+	if err != nil {
+		return Token{}, fmt.Errorf("attach to Chrome at %s: %w", b.Attach, err)
+	}
+
+	all := map[string]string{}
+	for _, c := range cookies {
+		if strings.Contains(c.Domain, "csair.com") {
+			all[c.Name] = c.Value
+		}
+	}
+	if len(all) == 0 {
+		return Token{}, fmt.Errorf("%w: no csair.com cookies in the attached browser — open b2c.csair.com and run one SFO→CAN search there first", clierr.ErrBlocked)
+	}
+	return Token{
+		AcwScV2: all["acw_sc__v2"],
+		AcwTc:   all["acw_tc"],
+		Cookies: all,
+		Expires: time.Now().Add(b.TTL),
+	}, nil
+}
+
+// devtoolsWS resolves a port / host:port / http URL / ws URL to the browser's
+// webSocketDebuggerUrl.
+func devtoolsWS(attach string) (string, error) {
+	if strings.HasPrefix(attach, "ws://") || strings.HasPrefix(attach, "wss://") {
+		return attach, nil
+	}
+	host := attach
+	if !strings.Contains(host, ":") {
+		host = "localhost:" + host // bare port
+	}
+	if !strings.HasPrefix(host, "http") {
+		host = "http://" + host
+	}
+	resp, err := http.Get(strings.TrimRight(host, "/") + "/json/version")
+	if err != nil {
+		return "", fmt.Errorf("reach Chrome devtools at %s: %w (launch Chrome with --remote-debugging-port=%s)", attach, err, portOf(attach))
+	}
+	defer resp.Body.Close()
+	var v struct {
+		WebSocketDebuggerURL string `json:"webSocketDebuggerUrl"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&v); err != nil {
+		return "", err
+	}
+	if v.WebSocketDebuggerURL == "" {
+		return "", fmt.Errorf("no webSocketDebuggerUrl from %s", attach)
+	}
+	return v.WebSocketDebuggerURL, nil
+}
+
+func portOf(attach string) string {
+	if i := strings.LastIndexByte(attach, ':'); i >= 0 {
+		return attach[i+1:]
+	}
+	return attach
 }
 
 func trimURL(u string) string {

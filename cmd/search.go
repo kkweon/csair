@@ -167,6 +167,7 @@ func canReauth() bool { return flagReauth && !sNoBootstrap }
 func reauthToken(ctx context.Context, origin, dest string) (auth.Token, error) {
 	bp := auth.NewBrowserProvider()
 	bp.Headless = !sHeaded
+	bp.Attach = flagAttach
 	if origin != "" && dest != "" {
 		bp.Route = origin + "-" + dest
 	}
@@ -185,8 +186,12 @@ func buildProvider(origin, dest string) (auth.Provider, error) {
 	}
 	bp := auth.NewBrowserProvider()
 	bp.Headless = !sHeaded
+	bp.Attach = flagAttach
 	bp.Route = origin + "-" + dest
 
+	if flagAttach != "" { // harvest from your own Chrome
+		return bp, nil
+	}
 	if sNoBootstrap {
 		if t, ok := bp.Load(); ok && t.Valid() {
 			return auth.Static{T: t}, nil

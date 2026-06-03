@@ -18,9 +18,11 @@ type Token struct {
 	Expires time.Time         // zero = unknown
 }
 
-// Valid reports whether the token looks usable right now.
+// Valid reports whether the token looks usable right now. A session is usable
+// if it has the acw token or any harvested cookies (the WAF only sets acw when
+// it challenges).
 func (t Token) Valid() bool {
-	if t.AcwScV2 == "" {
+	if t.AcwScV2 == "" && len(t.Cookies) == 0 {
 		return false
 	}
 	return t.Expires.IsZero() || time.Now().Before(t.Expires)

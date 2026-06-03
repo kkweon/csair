@@ -117,6 +117,31 @@ the bootstrap browser session, send a complete Chrome header set, run paced with
 jitter, and the bootstrap browser masks common automation tells (`navigator.webdriver`,
 languages, plugins).
 
+#### Attach to your own Chrome (most robust)
+
+When the IP is flagged, the site escalates from the silent JS challenge to an
+**interactive captcha** that an automated browser can't pass (`csair auth` then
+shows *"Verification failed"*). The fix is to let **your own Chrome** clear it —
+you browse like a human, and csair just copies the cookies:
+
+```sh
+# 1) launch your Chrome with a devtools port (dedicated profile recommended)
+google-chrome --remote-debugging-port=9222 --user-data-dir="$HOME/.csair-chrome"
+#   macOS:  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=9222 --user-data-dir="$HOME/.csair-chrome"
+
+# 2) in that window: open b2c.csair.com and run one SFO→CAN search (solve any captcha)
+
+# 3) csair reads the session from that Chrome — no copy-paste
+csair auth   --attach 9222          # cache it
+csair search SFO CAN 2026-06-14 --attach 9222
+csair scan   SFO CAN 2026-06-10..2026-06-20 --attach 9222
+```
+
+`--attach` takes a port, `host:port`, or a `ws://` URL. csair only *reads*
+cookies over CDP — it never drives that browser, so the challenge never sees
+automation. Keep the window open and `--reauth` can re-read a fresh session
+automatically.
+
 ### Environment
 
 | Var | Purpose |
