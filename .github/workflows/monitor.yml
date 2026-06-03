@@ -4,18 +4,36 @@ name: seat-monitor
 # emails when the business seat count changes for any flight. State lives in
 # data/monitor/*.json (committed back each change → free history via git).
 #
+# Two modes (CSAIR_MODE, chosen per trigger by the "Decide run mode" step):
+#   monitor  every-3h watch — email only when seats change (updates snapshot)
+#   status   daily 9am PT + manual dispatch — email the current seat status
+#            (full map, no diff; snapshot untouched)
+#
 # PREREQUISITE: confirm a runner can mint the anti-bot token by running the
 # `probe-token` workflow first. If the WAF blocks the runner, use the local-cron
 # fallback in scripts/monitor.sh instead (CSAIR_LOCAL_EMAIL=1).
 #
 # Required repo secrets: GMAIL_USER, GMAIL_APP_PASSWORD (16-char app password),
-# NOTIFY_TO.
+# NOTIFY_TO. Optional: NOTIFY_CC.
 
 on:
   schedule:
-    # Every 3 hours, at :17 (avoids the congested top-of-hour). UTC.
+    # Every 3 hours, at :17 (avoids the congested top-of-hour). UTC. → monitor.
     - cron: "17 */3 * * *"
+    # Daily status digest at 09:00 America/Los_Angeles. GitHub cron is UTC with
+    # no DST, so we fire at both 16:00 (PDT=09:00) and 17:00 (PST=09:00) UTC and
+    # the job's hour-guard lets through only the one that is 09:00 PT today.
+    - cron: "0 16 * * *"
+    - cron: "0 17 * * *"
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "status = email current seats now; monitor = email only if seats changed"
+        type: choice
+        default: status
+        options:
+          - status
+          - monitor
 
 permissions:
   contents: write          # to commit updated snapshots back
@@ -33,17 +51,42 @@ jobs:
       matrix:
         date: ["2026-06-10", "2026-06-14"]
     steps:
+      - name: Decide run mode
+        id: mode
+        # monitor: the every-3h cron. status: manual dispatch + the daily digest
+        # crons, but only at 09:00 PT (the other UTC cron is a no-op that hour).
+        run: |
+          event='${{ github.event_name }}'
+          sched='${{ github.event.schedule }}'
+          hour="$(TZ=America/Los_Angeles date +%H)"
+          mode=monitor; run=true
+          if [ "$event" = "workflow_dispatch" ]; then
+            mode='${{ github.event.inputs.mode }}'; [ -n "$mode" ] || mode=status
+          elif [ "$sched" = "17 */3 * * *" ]; then
+            mode=monitor
+          else
+            mode=status
+            [ "$hour" = "09" ] || run=false
+          fi
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "run=$run"   >> "$GITHUB_OUTPUT"
+          echo "decided: event=$event sched='$sched' hour=${hour} PT -> mode=$mode run=$run"
+
       - uses: actions/checkout@v4
+        if: steps.mode.outputs.run == 'true'
 
       - uses: actions/setup-go@v5
+        if: steps.mode.outputs.run == 'true'
         with:
           go-version: "1.26"
           cache: true
 
       - uses: browser-actions/setup-chrome@v1
         id: chrome
+        if: steps.mode.outputs.run == 'true'
 
       - name: Resolve Chrome
+        if: steps.mode.outputs.run == 'true'
         run: |
           CHROME="${{ steps.chrome.outputs.chrome-path }}"
           [ -n "$CHROME" ] || CHROME="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium-browser)"
@@ -51,17 +94,21 @@ jobs:
           "$CHROME" --version
 
       - name: Build
+        if: steps.mode.outputs.run == 'true'
         run: go build -o csair .
 
-      - name: Search + diff
+      - name: Search + report
         id: run
+        if: steps.mode.outputs.run == 'true'
+        env:
+          CSAIR_MODE: ${{ steps.mode.outputs.mode }}
         run: scripts/monitor.sh "${{ matrix.date }}"
-        # Sets outputs: changed, baseline, blocked, body_file.
+        # Sets outputs: email, subject, body_file, changed, baseline, blocked.
         # Exits non-zero on a block/expiry → email & commit steps are skipped and
         # GitHub surfaces a "workflow failed" notification.
 
       - name: Send email
-        if: steps.run.outputs.changed == 'true'
+        if: steps.mode.outputs.run == 'true' && steps.run.outputs.email == 'true'
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
@@ -72,11 +119,11 @@ jobs:
           from: csair monitor <${{ secrets.GMAIL_USER }}>
           to: ${{ secrets.NOTIFY_TO }}
           cc: ${{ secrets.NOTIFY_CC }}
-          subject: "[csair] SFO→CAN ${{ matrix.date }} business seats changed"
+          subject: ${{ steps.run.outputs.subject }}
           body: file://${{ steps.run.outputs.body_file }}
 
       - name: Commit snapshot
-        if: steps.run.outputs.changed == 'true' || steps.run.outputs.baseline == 'true'
+        if: steps.mode.outputs.run == 'true' && (steps.run.outputs.changed == 'true' || steps.run.outputs.baseline == 'true')
         run: |
           set -e
           git config user.name  "csair-monitor[bot]"

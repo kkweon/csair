@@ -29,18 +29,11 @@ for f in "$old" "$new"; do
   fi
 done
 
-# Reduce a snapshot to { "<flight key>": <business seats> }.
-# - flight key: itinerary.flights joined with "+" (e.g. "CZ658"; "CZ660+CZ3368"
-#   for a connection, though we run --direct so it's a single segment).
-# - business seats: cabin-level .seats for the cabin named "business"
-#   (case-insensitive; the JSON emits lowercase). // 0 so a flight that loses
-#   its business cabin reads as N -> 0 rather than a dropped key.
-seat_map='reduce .itineraries[]? as $it ({};
-  . + { ($it.flights | join("+")):
-        (($it.cabins[]? | select((.cabin | ascii_downcase) == "business") | .seats) // 0) })'
+# Shared seat-map / header / URL / "all seats now" rendering.
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib-seats.sh"
 
-old_map="$(jq -cS "$seat_map" "$old")"
-new_map="$(jq -cS "$seat_map" "$new")"
+old_map="$(seat_map "$old")"
+new_map="$(seat_map "$new")"
 
 # Build the list of changed flights as objects {flight, old, new}.
 changes="$(jq -n \
@@ -57,22 +50,12 @@ if [[ "$count" -eq 0 ]]; then
   exit 0
 fi
 
-# Route/date and a snapshot freshness stamp in the traveler's local zone
-# (America/Los_Angeles, auto PDT/PST) so the reader knows "as of when".
-read -r origin destination date < <(jq -r '"\(.origin) \(.destination) \(.date)"' "$new")
-header="${origin} → ${destination}  ·  ${date}  ·  Business"
-asof="As of $(TZ=America/Los_Angeles date '+%Y-%m-%d %H:%M %Z')"
+# Route/date header from the NEW snapshot (also sets SEAT_* for the URL).
+parse_route "$new"
 
-# Booking deep-link pinned to the monitored date (YYYYMMDD), mirroring the
-# format built by internal/auth/browser.go flightsURL().
-url_date="${date//-/}"
-book_url="https://b2c.csair.com/ita/intl/zh/flights?flex=1&m=0&p=100&t=${origin}-${destination}-${url_date}&egs=ITA,ITA&open=1"
-
-# jq column-pad helper shared by both lists (guards a negative width).
-pad_def='def pad($w): . + (if ($w - length) > 0 then " " * ($w - length) else "" end);'
-
-# The changed flights (old → new), with (new)/(gone) for appear/disappear.
-changes_fmt="$(jq -r "$pad_def"'
+# The changed flights (old → new), with (new)/(gone) for appear/disappear and
+# the NO SEATS flag on a flight that has dropped to zero business availability.
+changes_fmt="$(jq -r "$PAD_JQ"'
   .[]
   | "  \((.flight + ":") | pad(15))"
     + "\(if .old == null then "(new)" else "\(.old)" end) → "
@@ -80,27 +63,17 @@ changes_fmt="$(jq -r "$pad_def"'
        elif .new == 0 then "⚠️ NO SEATS"
        else "\(.new) seats" end)' <<<"$changes")"
 
-# The full current business-seat map (every flight in the NEW snapshot), sorted
-# by seats desc then flight asc. Zero-seat flights are flagged so a sold-out /
-# no-business-cabin flight stands out rather than reading as a low count.
-all_seats="$(jq -rn --argjson n "$new_map" "$pad_def"'
-  $n | to_entries
-  | sort_by([-.value, .key])
-  | .[]
-  | "  \((.key + ":") | pad(15))"
-    + (if .value > 0 then "\(.value) seats" else "⚠️ NO SEATS" end)')"
-
 {
-  echo "$header"
-  echo "$asof"
+  header_line
+  asof_line
   echo
   echo "Changed:"
   echo "$changes_fmt"
   echo
   echo "All business seats now:"
-  echo "$all_seats"
+  all_seats_now "$new_map"
   echo
-  echo "Book: $book_url"
+  book_url_line
 }
 
 exit 10
