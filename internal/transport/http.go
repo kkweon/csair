@@ -42,8 +42,18 @@ type Client struct {
 	jitter time.Duration
 }
 
+// Option customizes a Client at construction.
+type Option func(*Client)
+
+// WithPacing overrides the inter-request throttle (minimum gap + random jitter).
+// Used by the seat monitor to space a whole multi-target run more politely than
+// the snappier interactive-search default.
+func WithPacing(minGap, jitter time.Duration) Option {
+	return func(c *Client) { c.minGap, c.jitter = minGap, jitter }
+}
+
 // New builds a Client whose cookie jar is seeded with the anti-bot token.
-func New(tok auth.Token) (*Client, error) {
+func New(tok auth.Token, opts ...Option) (*Client, error) {
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		return nil, err
@@ -66,7 +76,7 @@ func New(tok auth.Token) (*Client, error) {
 	}
 	jar.SetCookies(base, cookies)
 
-	return &Client{
+	c := &Client{
 		hc: &http.Client{
 			Jar:       jar,
 			Timeout:   30 * time.Second,
@@ -75,7 +85,11 @@ func New(tok auth.Token) (*Client, error) {
 		referer: domainBase + "/ita/book/zh/booking",
 		minGap:  600 * time.Millisecond,
 		jitter:  500 * time.Millisecond,
-	}, nil
+	}
+	for _, o := range opts {
+		o(c)
+	}
+	return c, nil
 }
 
 const domainBase = "https://b2c.csair.com"

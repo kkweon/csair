@@ -16,8 +16,10 @@ import (
 	"github.com/kkweon/csair/internal/auth"
 	"github.com/kkweon/csair/internal/clierr"
 	"github.com/kkweon/csair/internal/domain"
+	"github.com/kkweon/csair/internal/ita"
 	"github.com/kkweon/csair/internal/monitor"
 	"github.com/kkweon/csair/internal/render"
+	"github.com/kkweon/csair/internal/transport"
 )
 
 var reportWrite bool
@@ -84,10 +86,14 @@ func runReportStatus(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	ctx := cmd.Context()
+	qs, err := newReportService(ctx)
+	if err != nil {
+		return err
+	}
 
 	var snaps []monitor.Snapshot
 	for _, t := range mc.Targets {
-		res, err := searchTarget(ctx, t)
+		res, err := searchTarget(ctx, qs, t)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "report: %s→%s %s: %v (omitted)\n", t.From, t.To, t.Date, err)
 			continue
@@ -107,6 +113,10 @@ func runReportDiff(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	ctx := cmd.Context()
+	qs, err := newReportService(ctx)
+	if err != nil {
+		return err
+	}
 
 	type fetched struct {
 		path    string
@@ -118,7 +128,7 @@ func runReportDiff(cmd *cobra.Command, args []string) error {
 
 	var got []fetched
 	for _, t := range mc.Targets {
-		res, err := searchTarget(ctx, t)
+		res, err := searchTarget(ctx, qs, t)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "report: %s→%s %s: %v (omitted)\n", t.From, t.To, t.Date, err)
 			continue
@@ -177,21 +187,39 @@ func loadMonitorConfig() (monitor.Config, error) {
 	return mc, nil
 }
 
-// searchTarget runs a direct, business-only search for one target using the
-// cached/env token (no browser bootstrap — the monitor mints it in 'csair auth'
-// first). The result is filtered and sorted to match a `search --json` snapshot.
-func searchTarget(ctx context.Context, t monitor.Target) (*domain.SearchResult, error) {
+// Monitor pacing: a whole report run shares one transport client, so the pacer
+// throttles across every target's request (not just within a single search).
+// The gap is longer than interactive search to stay under the WAF's burst
+// threshold — a background run minutes-long is fine; bursts get challenged.
+const (
+	reportMinGap = 1500 * time.Millisecond
+	reportJitter = 1000 * time.Millisecond
+)
+
+// newReportService builds the single paced query service shared by every target
+// in a report run. Sharing one client means the transport pacer spans the whole
+// run instead of resetting per target; WithPacing widens the gap for the monitor.
+func newReportService(ctx context.Context) (ita.QueryService, error) {
+	tok, err := reportToken(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return newQueryService(tok, transport.WithPacing(reportMinGap, reportJitter))
+}
+
+// searchTarget runs a direct, business-only search for one target on the shared,
+// paced query service. The result is filtered and sorted to match a
+// `search --json` snapshot.
+func searchTarget(ctx context.Context, qs ita.QueryService, t monitor.Target) (*domain.SearchResult, error) {
 	d, err := time.Parse("2006-01-02", t.Date)
 	if err != nil {
 		return nil, fmt.Errorf("%w: bad date %q", clierr.ErrUsage, t.Date)
 	}
-	origin, dest := strings.ToUpper(t.From), strings.ToUpper(t.To)
-	tok, err := reportToken(ctx, origin, dest)
-	if err != nil {
-		return nil, err
+	req := domain.SearchRequest{
+		Origin: strings.ToUpper(t.From), Destination: strings.ToUpper(t.To),
+		Date: d, Pax: domain.Pax{Adults: 1},
 	}
-	req := domain.SearchRequest{Origin: origin, Destination: dest, Date: d, Pax: domain.Pax{Adults: 1}}
-	res, err := doSearch(ctx, tok, req)
+	res, err := qs.Search(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -202,10 +230,8 @@ func searchTarget(ctx context.Context, t monitor.Target) (*domain.SearchResult, 
 
 // reportToken returns the cached (else env) token without bootstrapping a
 // browser; missing/expired is a token error the caller surfaces (exit 3).
-func reportToken(ctx context.Context, origin, dest string) (auth.Token, error) {
-	bp := auth.NewBrowserProvider()
-	bp.Route = origin + "-" + dest
-	if t, ok := bp.Load(); ok && t.Valid() {
+func reportToken(ctx context.Context) (auth.Token, error) {
+	if t, ok := auth.NewBrowserProvider().Load(); ok && t.Valid() {
 		return t, nil
 	}
 	if t, err := (auth.EnvProvider{}).Token(ctx); err == nil {

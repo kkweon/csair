@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"testing"
 
 	"github.com/spf13/viper"
@@ -155,6 +156,61 @@ date = "2026-06-17"
 	}
 	if got := mc.Targets[1].Flights; len(got) != 0 {
 		t.Errorf("targets[1].Flights = %v, want empty (default nonstop-only)", got)
+	}
+}
+
+// stubQS is a fake ita.QueryService that returns a canned result and records the
+// request it was called with.
+type stubQS struct {
+	res *domain.SearchResult
+	got domain.SearchRequest
+}
+
+func (s *stubQS) Search(_ context.Context, req domain.SearchRequest) (*domain.SearchResult, error) {
+	s.got = req
+	return s.res, nil
+}
+
+func bizPriced(seats int, price float64) domain.CabinAvail {
+	return domain.CabinAvail{Cabin: domain.CabinBusiness, Seats: seats, From: domain.Money{Amount: price, Currency: "USD"}}
+}
+
+func priced(amount float64, stops int, segs []domain.Segment, cabins ...domain.CabinAvail) domain.Itinerary {
+	it := itin(stops, segs, cabins...)
+	it.Lowest = domain.Money{Amount: amount, Currency: "USD"}
+	return it
+}
+
+// TestSearchTarget verifies searchTarget passes a normalized request to the
+// shared service, then keeps only nonstop business (default filter) sorted by
+// price.
+func TestSearchTarget(t *testing.T) {
+	res := &domain.SearchResult{Itineraries: []domain.Itinerary{
+		priced(1284, 0, []domain.Segment{seg("CZ", "658", "SFO", "CAN")}, bizPriced(7, 1284)),                                  // nonstop biz
+		priced(1100, 0, []domain.Segment{seg("CZ", "659", "SFO", "CAN")}, bizPriced(3, 1100)),                                  // nonstop biz, cheaper
+		priced(4716, 1, []domain.Segment{seg("CZ", "660", "SFO", "WUH"), seg("CZ", "8004", "WUH", "CAN")}, bizPriced(4, 4716)), // connection -> dropped
+		priced(999, 0, []domain.Segment{seg("CZ", "700", "SFO", "CAN")}, econCabin(9)),                                         // econ-only -> dropped
+	}}
+	stub := &stubQS{res: res}
+
+	got, err := searchTarget(context.Background(), stub, monitor.Target{From: "sfo", To: "can", Date: "2026-06-17"})
+	if err != nil {
+		t.Fatalf("searchTarget: %v", err)
+	}
+	// request normalized (uppercased route, parsed date)
+	if stub.got.Origin != "SFO" || stub.got.Destination != "CAN" {
+		t.Errorf("request route = %s→%s, want SFO→CAN", stub.got.Origin, stub.got.Destination)
+	}
+	if d := stub.got.Date.Format("2006-01-02"); d != "2026-06-17" {
+		t.Errorf("request date = %s, want 2026-06-17", d)
+	}
+	// kept: nonstop business only, sorted by price asc (CZ659 1100 before CZ658 1284)
+	var keys []string
+	for _, it := range got.Itineraries {
+		keys = append(keys, flightKey(it))
+	}
+	if !equalStrings(keys, []string{"CZ659", "CZ658"}) {
+		t.Errorf("kept = %v, want [CZ659 CZ658]", keys)
 	}
 }
 

@@ -150,8 +150,10 @@ func doSearch(ctx context.Context, tok auth.Token, req domain.SearchRequest) (*d
 }
 
 // newQueryService wires a paced transport + parser + catalog for one session.
-func newQueryService(tok auth.Token) (ita.QueryService, error) {
-	hc, err := transport.New(tok)
+// opts tune the transport (e.g. transport.WithPacing for the monitor's run-wide
+// throttle); with none it keeps the interactive-search default pacing.
+func newQueryService(tok auth.Token, opts ...transport.Option) (ita.QueryService, error) {
+	hc, err := transport.New(tok, opts...)
 	if err != nil {
 		return nil, err
 	}
