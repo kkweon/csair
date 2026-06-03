@@ -1,17 +1,18 @@
 name: seat-monitor
 
-# Watches SFO→CAN business-class seat availability for two departure dates and
-# emails when the business seat count changes for any flight. State lives in
-# data/monitor/*.json (committed back each change → free history via git).
+# Watches SFO→CAN business-class seat availability for the monitored dates.
+# Two modes (chosen per trigger by the setup job):
+#   monitor  every-3h watch — email only when seats change (updates snapshot,
+#            committed back to data/monitor/*.json → free history via git)
+#   status   daily 9am PT + manual dispatch — ONE combined email with the
+#            current seat status across all dates (no diff, snapshots untouched)
 #
-# Two modes (CSAIR_MODE, chosen per trigger by the "Decide run mode" step):
-#   monitor  every-3h watch — email only when seats change (updates snapshot)
-#   status   daily 9am PT + manual dispatch — email the current seat status
-#            (full map, no diff; snapshot untouched)
+# The seat-map/diff/digest rendering lives in Go (internal/monitor, unit-tested);
+# the scripts here are just orchestration (auth + search + send).
 #
 # PREREQUISITE: confirm a runner can mint the anti-bot token by running the
 # `probe-token` workflow first. If the WAF blocks the runner, use the local-cron
-# fallback in scripts/monitor.sh instead (CSAIR_LOCAL_EMAIL=1).
+# fallback in scripts/monitor.sh / status-digest.sh instead (CSAIR_LOCAL_EMAIL=1).
 #
 # Required repo secrets: GMAIL_USER, GMAIL_APP_PASSWORD (16-char app password),
 # NOTIFY_TO. Optional: NOTIFY_CC.
@@ -22,7 +23,7 @@ on:
     - cron: "17 */3 * * *"
     # Daily status digest at 09:00 America/Los_Angeles. GitHub cron is UTC with
     # no DST, so we fire at both 16:00 (PDT=09:00) and 17:00 (PST=09:00) UTC and
-    # the job's hour-guard lets through only the one that is 09:00 PT today.
+    # the setup job's hour-guard lets through only the one that is 09:00 PT today.
     - cron: "0 16 * * *"
     - cron: "0 17 * * *"
   workflow_dispatch:
@@ -36,26 +37,27 @@ on:
           - monitor
 
 permissions:
-  contents: write          # to commit updated snapshots back
+  contents: write          # to commit updated snapshots back (monitor mode)
 
 concurrency:
   group: seat-monitor
   cancel-in-progress: false
 
 jobs:
-  monitor:
+  # Decide the mode/run for this trigger and publish the monitored date list as
+  # the single source of truth (consumed by the matrix and the status digest).
+  setup:
     runs-on: ubuntu-latest
-    strategy:
-      max-parallel: 1       # one Chrome/token mint at a time; serialize pushes
-      fail-fast: false      # a block on one date must not cancel the other
-      matrix:
-        date: ["2026-06-10", "2026-06-14"]
+    outputs:
+      mode: ${{ steps.cfg.outputs.mode }}
+      run: ${{ steps.cfg.outputs.run }}
+      dates: ${{ steps.cfg.outputs.dates }}
+      datesjson: ${{ steps.cfg.outputs.datesjson }}
     steps:
-      - name: Decide run mode
-        id: mode
-        # monitor: the every-3h cron. status: manual dispatch + the daily digest
-        # crons, but only at 09:00 PT (the other UTC cron is a no-op that hour).
+      - id: cfg
         run: |
+          dates="2026-06-10 2026-06-14"
+          datesjson=$(printf '%s\n' $dates | jq -R . | jq -cs .)
           event='${{ github.event_name }}'
           sched='${{ github.event.schedule }}'
           hour="$(TZ=America/Los_Angeles date +%H)"
@@ -68,47 +70,48 @@ jobs:
             mode=status
             [ "$hour" = "09" ] || run=false
           fi
-          echo "mode=$mode" >> "$GITHUB_OUTPUT"
-          echo "run=$run"   >> "$GITHUB_OUTPUT"
-          echo "decided: event=$event sched='$sched' hour=${hour} PT -> mode=$mode run=$run"
+          {
+            echo "dates=$dates"
+            echo "datesjson=$datesjson"
+            echo "mode=$mode"
+            echo "run=$run"
+          } >> "$GITHUB_OUTPUT"
+          echo "decided: event=$event sched='$sched' hour=${hour} PT -> mode=$mode run=$run dates=[$dates]"
 
+  # Every-3h change watch: one job per date, emails only on a change.
+  monitor:
+    needs: setup
+    if: needs.setup.outputs.run == 'true' && needs.setup.outputs.mode == 'monitor'
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 1       # one Chrome/token mint at a time; serialize pushes
+      fail-fast: false      # a block on one date must not cancel the other
+      matrix:
+        date: ${{ fromJSON(needs.setup.outputs.datesjson) }}
+    steps:
       - uses: actions/checkout@v4
-        if: steps.mode.outputs.run == 'true'
-
       - uses: actions/setup-go@v5
-        if: steps.mode.outputs.run == 'true'
         with:
           go-version: "1.26"
           cache: true
-
       - uses: browser-actions/setup-chrome@v1
         id: chrome
-        if: steps.mode.outputs.run == 'true'
-
       - name: Resolve Chrome
-        if: steps.mode.outputs.run == 'true'
         run: |
           CHROME="${{ steps.chrome.outputs.chrome-path }}"
           [ -n "$CHROME" ] || CHROME="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium-browser)"
           echo "CSAIR_CHROME=$CHROME" >> "$GITHUB_ENV"
           "$CHROME" --version
-
       - name: Build
-        if: steps.mode.outputs.run == 'true'
         run: go build -o csair .
-
-      - name: Search + report
+      - name: Search + diff
         id: run
-        if: steps.mode.outputs.run == 'true'
-        env:
-          CSAIR_MODE: ${{ steps.mode.outputs.mode }}
         run: scripts/monitor.sh "${{ matrix.date }}"
         # Sets outputs: email, subject, body_file, changed, baseline, blocked.
         # Exits non-zero on a block/expiry → email & commit steps are skipped and
         # GitHub surfaces a "workflow failed" notification.
-
       - name: Send email
-        if: steps.mode.outputs.run == 'true' && steps.run.outputs.email == 'true'
+        if: steps.run.outputs.email == 'true'
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
@@ -121,9 +124,8 @@ jobs:
           cc: ${{ secrets.NOTIFY_CC }}
           subject: ${{ steps.run.outputs.subject }}
           body: file://${{ steps.run.outputs.body_file }}
-
       - name: Commit snapshot
-        if: steps.mode.outputs.run == 'true' && (steps.run.outputs.changed == 'true' || steps.run.outputs.baseline == 'true')
+        if: steps.run.outputs.changed == 'true' || steps.run.outputs.baseline == 'true'
         run: |
           set -e
           git config user.name  "csair-monitor[bot]"
@@ -134,3 +136,44 @@ jobs:
           # Rebase onto any concurrent push (the other matrix date) before pushing.
           git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
           git push origin "HEAD:${GITHUB_REF_NAME}"
+
+  # Daily / manual current-status digest: one job, one combined email.
+  status:
+    needs: setup
+    if: needs.setup.outputs.run == 'true' && needs.setup.outputs.mode == 'status'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+      - uses: browser-actions/setup-chrome@v1
+        id: chrome
+      - name: Resolve Chrome
+        run: |
+          CHROME="${{ steps.chrome.outputs.chrome-path }}"
+          [ -n "$CHROME" ] || CHROME="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium-browser)"
+          echo "CSAIR_CHROME=$CHROME" >> "$GITHUB_ENV"
+          "$CHROME" --version
+      - name: Build
+        run: go build -o csair .
+      - name: Status digest
+        id: run
+        run: scripts/status-digest.sh ${{ needs.setup.outputs.dates }}
+        # One combined email across all dates. Sets outputs: email, subject,
+        # body_file, blocked. Non-zero only if every fetch failed.
+      - name: Send email
+        if: steps.run.outputs.email == 'true'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.GMAIL_USER }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          from: csair monitor <${{ secrets.GMAIL_USER }}>
+          to: ${{ secrets.NOTIFY_TO }}
+          cc: ${{ secrets.NOTIFY_CC }}
+          subject: ${{ steps.run.outputs.subject }}
+          body: file://${{ steps.run.outputs.body_file }}
