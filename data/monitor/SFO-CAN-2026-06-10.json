@@ -13,33 +13,33 @@
       "stops": 0,
       "durationMin": 885,
       "lowest": {
-        "amount": 1644.48,
+        "amount": 1514.41,
         "currency": "USD"
       },
       "cabins": [
         {
           "cabin": "business",
-          "seats": 4,
+          "seats": 5,
           "atLeast": false,
           "from": {
-            "amount": 4700.07,
+            "amount": 4029.03,
             "currency": "USD"
           },
           "classes": [
             {
               "class": "C",
-              "seats": 4,
+              "seats": 5,
               "atLeast": false,
               "brand": "JFFA",
               "price": 6659.97,
               "currency": "USD"
             },
             {
-              "class": "D",
-              "seats": 2,
+              "class": "I",
+              "seats": 1,
               "atLeast": false,
               "brand": "JSTA",
-              "price": 4700.07,
+              "price": 4029.03,
               "currency": "USD"
             }
           ]
