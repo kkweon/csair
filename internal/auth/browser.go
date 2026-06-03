@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -212,20 +210,8 @@ func (b *BrowserProvider) bootstrap(ctx context.Context) (Token, error) {
 // attachHarvest reads the session from an already-running Chrome (yours), which
 // has solved any captcha as a human. We only read cookies — no automation that
 // the challenge could detect.
-// AttachAuto is the sentinel for "auto-detect my running Chrome's debug port".
-const AttachAuto = "auto"
-
 func (b *BrowserProvider) attachHarvest(ctx context.Context) (Token, error) {
-	attach := b.Attach
-	if attach == AttachAuto {
-		p, err := detectDebugPort()
-		if err != nil {
-			return Token{}, err
-		}
-		fmt.Fprintf(os.Stderr, "attached to your Chrome on port %s\n", p)
-		attach = p
-	}
-	wsURL, err := devtoolsWS(attach)
+	wsURL, err := devtoolsWS(b.Attach)
 	if err != nil {
 		return Token{}, err
 	}
@@ -291,77 +277,6 @@ func devtoolsWS(attach string) (string, error) {
 		return "", fmt.Errorf("no webSocketDebuggerUrl from %s", attach)
 	}
 	return v.WebSocketDebuggerURL, nil
-}
-
-// detectDebugPort finds a running Chrome's devtools port: first from process
-// command lines, then a few common ports, verifying each responds.
-func detectDebugPort() (string, error) {
-	scanned := scanProcPorts()
-	for _, p := range scanned {
-		if probeDevtools(p) {
-			return p, nil
-		}
-	}
-	common := []string{"9222", "9223", "9229"}
-	for _, p := range common {
-		if probeDevtools(p) {
-			return p, nil
-		}
-	}
-	return "", fmt.Errorf("%w: no reachable Chrome devtools port (found in processes: %v; also tried %v).\n"+
-		"Start Chrome with --remote-debugging-port=9222, then: csair ... --attach=9222",
-		clierr.ErrBlocked, orNone(scanned), common)
-}
-
-func orNone(s []string) string {
-	if len(s) == 0 {
-		return "none"
-	}
-	return strings.Join(s, ", ")
-}
-
-var debugPortRe = regexp.MustCompile(`--remote-debugging-port[=\s]+(\d+)`)
-
-func scanProcPorts() []string {
-	seen := map[string]bool{}
-	var out []string
-	add := func(s string) {
-		for _, m := range debugPortRe.FindAllStringSubmatch(s, -1) {
-			if !seen[m[1]] {
-				seen[m[1]] = true
-				out = append(out, m[1])
-			}
-		}
-	}
-	if entries, err := os.ReadDir("/proc"); err == nil { // Linux
-		for _, e := range entries {
-			if b, err := os.ReadFile("/proc/" + e.Name() + "/cmdline"); err == nil {
-				add(strings.ReplaceAll(string(b), "\x00", " "))
-			}
-		}
-		return out
-	}
-	// macOS/BSD: -ww prevents truncating Chrome's (very long) command line.
-	if b, err := exec.Command("ps", "-axww", "-o", "command=").Output(); err == nil {
-		add(string(b))
-	}
-	return out
-}
-
-func probeDevtools(port string) bool {
-	c := &http.Client{Timeout: 1500 * time.Millisecond}
-	resp, err := c.Get("http://localhost:" + port + "/json/version")
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-	var v struct {
-		WebSocketDebuggerURL string `json:"webSocketDebuggerUrl"`
-	}
-	if json.NewDecoder(resp.Body).Decode(&v) != nil {
-		return false
-	}
-	return v.WebSocketDebuggerURL != ""
 }
 
 func portOf(attach string) string {
