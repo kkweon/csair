@@ -294,7 +294,7 @@ func snapshotFromResult(res *domain.SearchResult) monitor.Snapshot {
 		Date:        res.Request.Date.Format("2006-01-02"),
 	}
 	for _, it := range res.Itineraries {
-		mi := monitor.Itinerary{}
+		mi := monitor.Itinerary{Stops: it.Stops, Via: it.Vias()}
 		for _, seg := range it.Segments {
 			mi.Flights = append(mi.Flights, seg.Number())
 		}

@@ -107,14 +107,7 @@ func flights(it domain.Itinerary) string {
 }
 
 func routing(it domain.Itinerary) string {
-	if len(it.Segments) == 0 {
-		return ""
-	}
-	pts := []string{it.Segments[0].Origin}
-	for _, s := range it.Segments {
-		pts = append(pts, s.Destination)
-	}
-	return strings.Join(pts, "–")
+	return strings.Join(it.Path(), "–")
 }
 
 func depart(it domain.Itinerary) time.Time {
@@ -211,6 +204,7 @@ type view struct {
 type itineraryView struct {
 	Flights     []string    `json:"flights"`
 	Routing     string      `json:"routing"`
+	Via         []string    `json:"via,omitempty"`
 	Departs     string      `json:"departs,omitempty"`
 	Arrives     string      `json:"arrives,omitempty"`
 	Stops       int         `json:"stops"`
@@ -245,7 +239,7 @@ func toView(res *domain.SearchResult) view {
 	v := view{Origin: res.Request.Origin, Destination: res.Request.Destination, Date: res.Request.Date.Format("2006-01-02")}
 	for _, it := range res.Itineraries {
 		iv := itineraryView{
-			Flights: segNums(it), Routing: routing(it), Stops: it.Stops,
+			Flights: segNums(it), Routing: routing(it), Via: it.Vias(), Stops: it.Stops,
 			DurationMin: int(it.Duration.Minutes()),
 		}
 		if d := depart(it); !d.IsZero() {

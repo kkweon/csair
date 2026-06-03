@@ -29,6 +29,60 @@ func TestExecution(t *testing.T) {
 	}
 }
 
+func TestSegVias(t *testing.T) {
+	if v := segVias(dtoSegment{Legs: []dtoLeg{{DepPort: "SFO", ArrPort: "CAN"}}}); v != nil {
+		t.Errorf("single-leg vias = %v, want nil", v)
+	}
+	if v := segVias(dtoSegment{}); v != nil {
+		t.Errorf("no-leg vias = %v, want nil", v)
+	}
+	v := segVias(dtoSegment{Legs: []dtoLeg{{ArrPort: "WUH"}, {ArrPort: "CAN"}}})
+	if len(v) != 1 || v[0] != "WUH" {
+		t.Errorf("through vias = %v, want [WUH]", v)
+	}
+}
+
+// A single-segment through-flight (one flight number, an internal Wuhan stop)
+// must expose the via city from its legs and report stops=1.
+func TestFlights_ThroughFlightVias(t *testing.T) {
+	grid := []byte(`{
+	  "success": true,
+	  "data": {"data": {"dateFlights": [
+	    {"stopNumber": 1, "duration": 1100, "origin": "SFO", "destination": "CAN",
+	     "segments": [
+	       {"flightNo": "660", "carrier": "CZ", "depPort": "SFO", "arrPort": "CAN",
+	        "legs": [
+	          {"depPort": "SFO", "arrPort": "WUH"},
+	          {"depPort": "WUH", "arrPort": "CAN"}
+	        ]}
+	     ],
+	     "prices": [{"displayPrice": 1284, "displayCurrency": "USD",
+	        "cabins": [{"name": "C", "type": "Business", "bookingClassAvails": "9"}]}]
+	    }
+	  ]}}
+	}`)
+	its, err := NewParser().Flights(grid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(its) != 1 {
+		t.Fatalf("itineraries = %d, want 1", len(its))
+	}
+	it := its[0]
+	if it.Stops != 1 {
+		t.Errorf("stops = %d, want 1", it.Stops)
+	}
+	if len(it.Segments) != 1 {
+		t.Fatalf("segments = %d, want 1 (through-flight keeps one flight number)", len(it.Segments))
+	}
+	if got := it.Segments[0].Number(); got != "CZ660" {
+		t.Errorf("flight = %q, want CZ660", got)
+	}
+	if got := it.Segments[0].Vias; len(got) != 1 || got[0] != "WUH" {
+		t.Errorf("vias = %v, want [WUH]", got)
+	}
+}
+
 func TestFlights_SFOCAN(t *testing.T) {
 	grid := loadFixture(t, "queryInterFlight_SFO-CAN_2026-06-14.json")
 	its, err := NewParser().Flights(grid)

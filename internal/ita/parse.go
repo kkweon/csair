@@ -80,9 +80,25 @@ func parseSegments(segs []dtoSegment) []domain.Segment {
 			DepTerminal: s.DepTerm,
 			ArrTerminal: s.ArrTerm,
 			CodeShare:   s.CodeShare,
+			Vias:        segVias(s),
 		})
 	}
 	return res
+}
+
+// segVias returns a through-flight's intermediate stops: the arrival port of
+// each leg but the last. A single-leg (nonstop) segment has none.
+func segVias(s dtoSegment) []string {
+	if len(s.Legs) < 2 {
+		return nil
+	}
+	v := make([]string, 0, len(s.Legs)-1)
+	for _, l := range s.Legs[:len(s.Legs)-1] {
+		if l.ArrPort != "" {
+			v = append(v, l.ArrPort)
+		}
+	}
+	return v
 }
 
 // segTimes prefers the zone-qualified leg times; falls back to date+time.

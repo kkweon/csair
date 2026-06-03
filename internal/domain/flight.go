@@ -50,6 +50,7 @@ type Segment struct {
 	DepTerminal string
 	ArrTerminal string
 	CodeShare   bool
+	Vias        []string // intermediate airports within this segment (through-flight stops), e.g. ["WUH"]
 }
 
 // Number is the human flight designator, e.g. "CZ658".
@@ -86,6 +87,31 @@ type Itinerary struct {
 	Duration time.Duration
 	Cabins   []CabinAvail
 	Lowest   Money
+}
+
+// Path is the full airport sequence: origin, then each segment's intra-segment
+// vias (through-flight stops) and its destination. A single-segment CZ660
+// SFO→CAN with an internal Wuhan stop expands to SFO, WUH, CAN.
+func (it Itinerary) Path() []string {
+	if len(it.Segments) == 0 {
+		return nil
+	}
+	pts := []string{it.Segments[0].Origin}
+	for _, s := range it.Segments {
+		pts = append(pts, s.Vias...)
+		pts = append(pts, s.Destination)
+	}
+	return pts
+}
+
+// Vias is the intermediate airports only (Path without the first origin and the
+// final destination) — the connection/through points, e.g. ["WUH"].
+func (it Itinerary) Vias() []string {
+	p := it.Path()
+	if len(p) <= 2 {
+		return nil
+	}
+	return p[1 : len(p)-1]
 }
 
 // SearchResult bundles a request with its itineraries.

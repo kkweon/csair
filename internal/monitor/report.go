@@ -36,7 +36,31 @@ type Snapshot struct {
 // Itinerary is one option: its flight legs and per-cabin availability.
 type Itinerary struct {
 	Flights []string `json:"flights"`
+	Stops   int      `json:"stops"`
+	Via     []string `json:"via"`
 	Cabins  []Cabin  `json:"cabins"`
+}
+
+// routeNote annotates a connecting itinerary for its seat-map line, e.g.
+// "  (1-stop via WUH)". Nonstops get "" so their lines stay clean.
+func (it Itinerary) routeNote() string {
+	if it.Stops <= 0 {
+		return ""
+	}
+	if len(it.Via) == 0 {
+		return fmt.Sprintf("  (%d-stop)", it.Stops)
+	}
+	return fmt.Sprintf("  (%d-stop via %s)", it.Stops, strings.Join(it.Via, ", "))
+}
+
+// businessSeats is the itinerary's business-cabin seat count (0 if none).
+func (it Itinerary) businessSeats() int {
+	for _, c := range it.Cabins {
+		if strings.EqualFold(c.Cabin, businessCabin) {
+			return c.Seats
+		}
+	}
+	return 0
 }
 
 // Cabin is one cabin's headline seat count on an itinerary.
@@ -65,14 +89,7 @@ func (it Itinerary) FlightKey() string { return strings.Join(it.Flights, "+") }
 func (s Snapshot) BusinessSeats() map[string]int {
 	m := make(map[string]int, len(s.Itineraries))
 	for _, it := range s.Itineraries {
-		seats := 0
-		for _, c := range it.Cabins {
-			if strings.EqualFold(c.Cabin, businessCabin) {
-				seats = c.Seats
-				break
-			}
-		}
-		m[it.FlightKey()] = seats
+		m[it.FlightKey()] = it.businessSeats()
 	}
 	return m
 }
@@ -204,22 +221,32 @@ func asOfLine(now time.Time) string {
 }
 
 // writeSeatLines writes the "all business seats now" block: every flight in the
-// snapshot, sorted by seats desc then flight asc, zero flagged as NO SEATS.
+// snapshot, sorted by seats desc then flight asc, zero flagged as NO SEATS, with
+// a connection note (e.g. "(1-stop via WUH)") on non-direct itineraries.
 func writeSeatLines(b *strings.Builder, s Snapshot) {
-	for _, e := range sortedSeats(s.BusinessSeats()) {
-		fmt.Fprintln(b, seatLine(e.flight, e.seats))
+	for _, e := range s.businessRows() {
+		fmt.Fprintln(b, seatLine(e.flight, e.seats, e.note))
 	}
 }
 
 type seatEntry struct {
 	flight string
 	seats  int
+	note   string
 }
 
-func sortedSeats(m map[string]int) []seatEntry {
-	es := make([]seatEntry, 0, len(m))
-	for f, n := range m {
-		es = append(es, seatEntry{f, n})
+// businessRows is the seat-map rows for a snapshot: one row per flight key
+// (deduped, last wins — matching BusinessSeats), carrying the business seat
+// count and connection note, sorted by seats desc then flight asc.
+func (s Snapshot) businessRows() []seatEntry {
+	by := make(map[string]seatEntry, len(s.Itineraries))
+	for _, it := range s.Itineraries {
+		k := it.FlightKey()
+		by[k] = seatEntry{flight: k, seats: it.businessSeats(), note: it.routeNote()}
+	}
+	es := make([]seatEntry, 0, len(by))
+	for _, e := range by {
+		es = append(es, e)
 	}
 	sort.Slice(es, func(i, j int) bool {
 		if es[i].seats != es[j].seats {
@@ -231,14 +258,14 @@ func sortedSeats(m map[string]int) []seatEntry {
 }
 
 // seatLine renders one "  CZ658:        7 seats" / "  CZ400:        ⚠️ NO SEATS"
-// row. The flight label column is padded to a fixed width; labels are ASCII so
-// byte and display width match.
-func seatLine(flight string, seats int) string {
+// row, plus an optional connection note. The flight label column is padded to a
+// fixed width; labels are ASCII so byte and display width match.
+func seatLine(flight string, seats int, note string) string {
 	val := "⚠️ NO SEATS"
 	if seats > 0 {
 		val = fmt.Sprintf("%d seats", seats)
 	}
-	return fmt.Sprintf("  %-15s%s", flight+":", val)
+	return fmt.Sprintf("  %-15s%s%s", flight+":", val, note)
 }
 
 // changeLine renders one "  CZ658:        8 → 7 seats" row: the old count (or

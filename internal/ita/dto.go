@@ -45,6 +45,8 @@ type dtoSegment struct {
 }
 
 type dtoLeg struct {
+	DepPort     string `json:"depPort"`
+	ArrPort     string `json:"arrPort"`
 	DepTimeZone string `json:"depTimeZone"` // "2026-06-14T00:35-07:00"
 	ArrTimeZone string `json:"arrTimeZone"` // "2026-06-15T06:20+08:00"
 }

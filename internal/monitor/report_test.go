@@ -95,6 +95,42 @@ func TestDiffNoChange(t *testing.T) {
 	}
 }
 
+func TestRouteNote(t *testing.T) {
+	cases := []struct {
+		it   Itinerary
+		want string
+	}{
+		{Itinerary{Stops: 0}, ""},
+		{Itinerary{Stops: 0, Via: []string{"WUH"}}, ""}, // stops==0 wins (defensive)
+		{Itinerary{Stops: 1, Via: []string{"WUH"}}, "  (1-stop via WUH)"},
+		{Itinerary{Stops: 2, Via: []string{"WUH", "PEK"}}, "  (2-stop via WUH, PEK)"},
+		{Itinerary{Stops: 1}, "  (1-stop)"}, // stop count known, via missing
+	}
+	for _, c := range cases {
+		if got := c.it.routeNote(); got != c.want {
+			t.Errorf("routeNote(stops=%d via=%v) = %q, want %q", c.it.Stops, c.it.Via, got, c.want)
+		}
+	}
+}
+
+// A connecting itinerary's seat line carries the via note; a nonstop stays clean.
+func TestStatusBodyAnnotatesConnection(t *testing.T) {
+	s := Snapshot{Origin: "SFO", Destination: "CAN", Date: "2026-06-16",
+		Itineraries: []Itinerary{
+			{Flights: []string{"CZ660"}, Stops: 1, Via: []string{"WUH"},
+				Cabins: []Cabin{{Cabin: "business", Seats: 9}}},
+			{Flights: []string{"CZ658"}, Stops: 0,
+				Cabins: []Cabin{{Cabin: "business", Seats: 4}}},
+		}}
+	got := StatusBody([]Snapshot{s}, fixedNow)
+	if !strings.Contains(got, "9 seats  (1-stop via WUH)") {
+		t.Errorf("missing annotated connection line:\n%s", got)
+	}
+	if strings.Contains(got, "4 seats  (") { // the nonstop CZ658 must carry no note
+		t.Errorf("nonstop line should stay clean (no note):\n%s", got)
+	}
+}
+
 func TestBookingURL(t *testing.T) {
 	got := BookingURL("SFO", "CAN", "2026-06-14")
 	want := "https://b2c.csair.com/ita/intl/zh/flights?flex=1&m=0&p=100&t=SFO-CAN-20260614&egs=ITA,ITA&open=1"
