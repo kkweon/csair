@@ -1,0 +1,61 @@
+name: probe-token
+
+# One-off validation: can a GitHub-hosted runner (Azure datacenter IP) mint the
+# Aliyun anti-bot token through `csair auth`, or does the WAF hard-block it?
+# This gates the real monitor. Run it a few times across different hours via the
+# Actions tab ("Run workflow"). It NEVER fails the job — read the logs to decide.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+
+      - uses: browser-actions/setup-chrome@v1
+        id: chrome
+
+      - name: Resolve Chrome
+        run: |
+          CHROME="${{ steps.chrome.outputs.chrome-path }}"
+          [ -n "$CHROME" ] || CHROME="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium-browser)"
+          echo "CSAIR_CHROME=$CHROME" >> "$GITHUB_ENV"
+          "$CHROME" --version
+
+      - name: Build
+        run: go build -o csair .
+
+      - name: Probe auth + search (never fails the job)
+        run: |
+          set +e
+          echo "::group::csair auth"
+          ./csair auth -v
+          auth_rc=$?
+          echo "auth_exit=$auth_rc"
+          echo "::endgroup::"
+
+          if [ "$auth_rc" -eq 0 ]; then
+            echo "::group::csair search SFO CAN 2026-06-10 --cabin business --direct"
+            ./csair search SFO CAN 2026-06-10 --cabin business --direct --json --no-bootstrap -v > out.json 2> search.err
+            search_rc=$?
+            echo "search_exit=$search_rc"
+            echo "----- stderr -----"; cat search.err
+            echo "----- stdout (head) -----"; head -c 2000 out.json
+            echo "::endgroup::"
+          else
+            echo "auth failed (exit $auth_rc) — runner IP likely walled by the WAF. Skipping search."
+          fi
+
+          echo "=========================================="
+          echo "VERDICT GUIDE:"
+          echo "  auth_exit=0 AND search returns itineraries  -> runner can mint; build monitor.yml"
+          echo "  auth_exit=5 / 'blocked' / 'no session cookies' -> use local-cron fallback"
+          echo "=========================================="
+          exit 0

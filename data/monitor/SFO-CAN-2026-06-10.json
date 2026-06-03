@@ -1,0 +1,50 @@
+{
+  "origin": "SFO",
+  "destination": "CAN",
+  "date": "2026-06-10",
+  "itineraries": [
+    {
+      "flights": [
+        "CZ658"
+      ],
+      "routing": "SFO–CAN",
+      "departs": "2026-06-10T00:35:00-07:00",
+      "arrives": "2026-06-11T06:20:00+08:00",
+      "stops": 0,
+      "durationMin": 885,
+      "lowest": {
+        "amount": 1644.48,
+        "currency": "USD"
+      },
+      "cabins": [
+        {
+          "cabin": "business",
+          "seats": 4,
+          "atLeast": false,
+          "from": {
+            "amount": 4700.07,
+            "currency": "USD"
+          },
+          "classes": [
+            {
+              "class": "C",
+              "seats": 4,
+              "atLeast": false,
+              "brand": "JFFA",
+              "price": 6659.97,
+              "currency": "USD"
+            },
+            {
+              "class": "D",
+              "seats": 2,
+              "atLeast": false,
+              "brand": "JSTA",
+              "price": 4700.07,
+              "currency": "USD"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
