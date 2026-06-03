@@ -13,6 +13,7 @@ csair <command> [args] [flags]
 | `search`   | Search a route+date; show seats available per booking class |
 | `calendar` | Cheapest fare per date around a target |
 | `auth`     | Bootstrap/refresh the `acw_sc__v2` token (headed Chrome) |
+| `report`   | Render seat-monitor email bodies from `search --json` snapshots |
 
 ## `search`
 
@@ -61,6 +62,22 @@ csair auth --clear    # forget cached token
 **auto-launch the bootstrap once** (with a notice), unless:
 - `--acw <token>` or `CSAIR_ACW` is set, or
 - `--no-bootstrap` is passed (then exit code 3 with `run 'csair auth'`).
+
+## `report`
+
+Renders the seat-monitor email bodies from saved `search --json` snapshots. The
+rendering (business seat map, diff, current-status digest, booking link) lives in
+`internal/monitor` and is unit-tested; the monitor scripts call these.
+
+```
+csair report diff OLD.json NEW.json          # change report; no output if unchanged
+csair report status SNAP.json [SNAP.json …]  # ONE combined current-status digest
+```
+
+`report diff` prints nothing and exits 0 when the business seat count is unchanged,
+and prints the change report otherwise — so callers treat empty stdout as "no email".
+`report status` takes one or more snapshots and renders a single digest covering them
+all (the daily/manual status email for every monitored date in one message).
 
 ## Output
 
