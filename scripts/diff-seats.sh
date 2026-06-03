@@ -57,12 +57,50 @@ if [[ "$count" -eq 0 ]]; then
   exit 0
 fi
 
-# Derive a route/date header from the NEW snapshot for the report.
-header="$(jq -r '"\(.origin) → \(.destination)  ·  \(.date)  ·  Business"' "$new")"
+# Route/date and a snapshot freshness stamp in the traveler's local zone
+# (America/Los_Angeles, auto PDT/PST) so the reader knows "as of when".
+read -r origin destination date < <(jq -r '"\(.origin) \(.destination) \(.date)"' "$new")
+header="${origin} → ${destination}  ·  ${date}  ·  Business"
+asof="As of $(TZ=America/Los_Angeles date '+%Y-%m-%d %H:%M %Z')"
 
-echo "$header"
-jq -r '.[]
-  | "  \(.flight):  \(if .old == null then "(new)" else "\(.old)" end) → \(if .new == null then "(gone)" else "\(.new) seats" end)"' \
-  <<<"$changes"
+# Booking deep-link pinned to the monitored date (YYYYMMDD), mirroring the
+# format built by internal/auth/browser.go flightsURL().
+url_date="${date//-/}"
+book_url="https://b2c.csair.com/ita/intl/zh/flights?flex=1&m=0&p=100&t=${origin}-${destination}-${url_date}&egs=ITA,ITA&open=1"
+
+# jq column-pad helper shared by both lists (guards a negative width).
+pad_def='def pad($w): . + (if ($w - length) > 0 then " " * ($w - length) else "" end);'
+
+# The changed flights (old → new), with (new)/(gone) for appear/disappear.
+changes_fmt="$(jq -r "$pad_def"'
+  .[]
+  | "  \((.flight + ":") | pad(15))"
+    + "\(if .old == null then "(new)" else "\(.old)" end) → "
+    + (if .new == null then "(gone)"
+       elif .new == 0 then "⚠️ NO SEATS"
+       else "\(.new) seats" end)' <<<"$changes")"
+
+# The full current business-seat map (every flight in the NEW snapshot), sorted
+# by seats desc then flight asc. Zero-seat flights are flagged so a sold-out /
+# no-business-cabin flight stands out rather than reading as a low count.
+all_seats="$(jq -rn --argjson n "$new_map" "$pad_def"'
+  $n | to_entries
+  | sort_by([-.value, .key])
+  | .[]
+  | "  \((.key + ":") | pad(15))"
+    + (if .value > 0 then "\(.value) seats" else "⚠️ NO SEATS" end)')"
+
+{
+  echo "$header"
+  echo "$asof"
+  echo
+  echo "Changed:"
+  echo "$changes_fmt"
+  echo
+  echo "All business seats now:"
+  echo "$all_seats"
+  echo
+  echo "Book: $book_url"
+}
 
 exit 10

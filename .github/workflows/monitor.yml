@@ -71,6 +71,7 @@ jobs:
           password: ${{ secrets.GMAIL_APP_PASSWORD }}
           from: csair monitor <${{ secrets.GMAIL_USER }}>
           to: ${{ secrets.NOTIFY_TO }}
+          cc: mojia0819@gmail.com
           subject: "[csair] SFO→CAN ${{ matrix.date }} business seats changed"
           body: file://${{ steps.run.outputs.body_file }}
 

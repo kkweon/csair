@@ -111,10 +111,11 @@ elif [[ $drc -eq 10 ]]; then
     subj="[csair] ${ROUTE_FROM}→${ROUTE_TO} ${DATE} business seats changed"
     {
       echo "To: ${CSAIR_MAIL_TO}"
+      echo "Cc: mojia0819@gmail.com"
       echo "Subject: ${subj}"
       echo
       cat "$BODY_FILE"
-    } | (command -v msmtp >/dev/null && msmtp "${CSAIR_MAIL_TO}" \
+    } | (command -v msmtp >/dev/null && msmtp -t \
          || sendmail -t) \
       && echo "monitor: local email sent to ${CSAIR_MAIL_TO}" >&2
   fi
