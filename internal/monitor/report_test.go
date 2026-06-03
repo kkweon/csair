@@ -149,6 +149,7 @@ func TestConfig(t *testing.T) {
 		SnapshotDir: "data/monitor",
 		Targets: []Target{
 			{From: "SFO", To: "CAN", Date: "2026-06-14"},
+			{From: "SFO", To: "CAN", Date: "2026-06-16", Flights: []string{"CZ660"}},
 		},
 	}
 	if err := c.Validate(); err != nil {
@@ -156,6 +157,10 @@ func TestConfig(t *testing.T) {
 	}
 	if got, want := c.SnapshotPath(c.Targets[0]), "data/monitor/SFO-CAN-2026-06-14.json"; got != want {
 		t.Errorf("SnapshotPath = %q, want %q", got, want)
+	}
+	// Flights does not affect the snapshot path (keyed by route+date only).
+	if got, want := c.SnapshotPath(c.Targets[1]), "data/monitor/SFO-CAN-2026-06-16.json"; got != want {
+		t.Errorf("SnapshotPath (flights target) = %q, want %q", got, want)
 	}
 
 	bad := []Config{

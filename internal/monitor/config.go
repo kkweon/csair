@@ -12,6 +12,11 @@ type Target struct {
 	From string `mapstructure:"from"`
 	To   string `mapstructure:"to"`
 	Date string `mapstructure:"date"` // YYYY-MM-DD
+	// Flights, when set, restricts the monitor to exactly these flight keys
+	// (segment numbers joined by "+", e.g. "CZ660" for a through-flight or
+	// "CZ660+CZ8004" for a connection) regardless of stop count. Empty means the
+	// default: nonstop business itineraries only.
+	Flights []string `mapstructure:"flights"`
 }
 
 // Config is the `[monitor]` section of the csair config file: which routes and

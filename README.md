@@ -196,10 +196,13 @@ No WAF and no interactive captcha. The only gate is the Aliyun cookie **`acw_sc_
 
 ## Seat monitor (cron + email alerts)
 
-Watches **business-class, direct only** for the routes/dates in `monitor.toml`,
-keyed by flight number (e.g. `CZ658`). Price changes are ignored. Snapshots live
-in `data/monitor/<FROM>-<TO>-<date>.json` and are committed back, so git history
-is a free log of every seat change.
+Watches **business class** for the routes/dates in `monitor.toml`, keyed by
+flight number (e.g. `CZ658`). Nonstop-only by default; a target may set an
+optional `flights = ["CZ660"]` allowlist to instead track specific itineraries by
+flight key — including a 1-stop through-flight (`"CZ660"`) or a named connection
+(`"CZ660+CZ8004"`), which bypasses the nonstop filter. Price changes are ignored.
+Snapshots live in `data/monitor/<FROM>-<TO>-<date>.json` and are committed back,
+so git history is a free log of every seat change.
 
 The search/diff/digest logic is in the Go binary (`internal/monitor`,
 unit-tested); two subcommands render one combined body across all targets:

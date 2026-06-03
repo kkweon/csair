@@ -195,7 +195,7 @@ func searchTarget(ctx context.Context, t monitor.Target) (*domain.SearchResult, 
 	if err != nil {
 		return nil, err
 	}
-	businessDirect(res)
+	businessTracked(res, t)
 	sortItineraries(res.Itineraries, "price")
 	return res, nil
 }
@@ -214,13 +214,22 @@ func reportToken(ctx context.Context, origin, dest string) (auth.Token, error) {
 	return auth.Token{}, clierr.ErrTokenExpired
 }
 
-// businessDirect keeps only nonstop itineraries and their business cabin,
-// dropping itineraries with no business inventory — matching how the monitor
-// snapshots are produced (search --cabin business --direct).
-func businessDirect(res *domain.SearchResult) {
+// businessTracked keeps the business cabin of the itineraries this target
+// watches: when t.Flights is set, exactly those flight keys (any stop count);
+// otherwise nonstop itineraries only — matching how the monitor snapshots are
+// produced. Itineraries with no business inventory are dropped.
+func businessTracked(res *domain.SearchResult, t monitor.Target) {
+	allow := make(map[string]bool, len(t.Flights))
+	for _, f := range t.Flights {
+		allow[strings.ToUpper(strings.TrimSpace(f))] = true
+	}
 	kept := res.Itineraries[:0]
 	for _, it := range res.Itineraries {
-		if it.Stops != 0 {
+		if len(allow) > 0 {
+			if !allow[strings.ToUpper(flightKey(it))] { // allowlist: any stop count
+				continue
+			}
+		} else if it.Stops != 0 { // default: nonstop only
 			continue
 		}
 		cabs := it.Cabins[:0]
@@ -236,6 +245,18 @@ func businessDirect(res *domain.SearchResult) {
 		kept = append(kept, it)
 	}
 	res.Itineraries = kept
+}
+
+// flightKey is the itinerary's flight key — segment numbers joined by "+", e.g.
+// "CZ660" or "CZ660+CZ8004". It mirrors the snapshot's "flights" projection
+// (render.segNums) and monitor.Itinerary.FlightKey, so the allowlist match
+// agrees with the key later re-parsed from the snapshot.
+func flightKey(it domain.Itinerary) string {
+	nums := make([]string, len(it.Segments))
+	for i, s := range it.Segments {
+		nums[i] = s.Number()
+	}
+	return strings.Join(nums, "+")
 }
 
 // snapshotFromResult projects a live search result onto the monitor's snapshot

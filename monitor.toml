@@ -13,3 +13,14 @@ date = "2026-06-10"
 from = "SFO"
 to   = "CAN"
 date = "2026-06-14"
+
+[[monitor.targets]]
+from = "SFO"
+to   = "CAN"
+date = "2026-06-16"
+flights = ["CZ660"]   # 1-stop through-flight SFO–WUH–CAN; tracked by flight key
+
+[[monitor.targets]]
+from = "SFO"
+to   = "CAN"
+date = "2026-06-17"   # nonstop CZ658 (default nonstop-only filter)

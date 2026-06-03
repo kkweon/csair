@@ -85,7 +85,20 @@ snapshotDir = "data/monitor"
 from = "SFO"
 to   = "CAN"
 date = "2026-06-14"
+[[monitor.targets]]
+from = "SFO"
+to   = "CAN"
+date = "2026-06-16"
+flights = ["CZ660"]   # optional: track exactly these flight keys
 ```
+
+Each target watches **business class**. By default only **nonstop** itineraries
+are tracked. The optional `flights` allowlist overrides that: it keeps only the
+itineraries whose flight key matches (segment numbers joined by `+`, e.g.
+`"CZ660"` for a 1-stop through-flight or `"CZ660+CZ8004"` for a connection) and
+**ignores the nonstop filter**, so you can monitor a specific connecting
+itinerary. Snapshots are keyed by route+date (`<FROM>-<TO>-<date>.json`), so a
+given route+date should appear in at most one target.
 
 `report diff` prints nothing (exit 0) when no business seat count moved, and the
 combined change report otherwise — callers treat empty stdout as "no email".
