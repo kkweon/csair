@@ -22,7 +22,6 @@ var authCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		p := auth.NewBrowserProvider()
 		p.Headless = !authHeaded
-		p.Attach = flagAttach
 		if authRoute != "" {
 			p.Route = authRoute
 		}
@@ -45,13 +44,7 @@ var authCmd = &cobra.Command{
 			return nil
 		}
 
-		if flagAttach != "" {
-			fmt.Fprintf(cmd.ErrOrStderr(),
-				"reading session from your Chrome on port %s…\n"+
-					"→ first open https://b2c.csair.com in that Chrome and run one SFO→CAN search (solve any captcha).\n", flagAttach)
-		} else {
-			fmt.Fprintln(cmd.ErrOrStderr(), "bootstrapping session via Chrome…")
-		}
+		fmt.Fprintln(cmd.ErrOrStderr(), "bootstrapping session via Chrome…")
 		t, err := p.Refresh(cmd.Context())
 		if err != nil {
 			return err
