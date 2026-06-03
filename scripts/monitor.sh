@@ -24,6 +24,7 @@
 #
 # Local email (optional): set CSAIR_LOCAL_EMAIL=1 and provide
 #   CSAIR_MAIL_TO and a working `msmtp`/`sendmail` to email directly from cron.
+#   CSAIR_MAIL_CC (optional) adds a Cc recipient.
 set -uo pipefail
 
 ROUTE_FROM="SFO"
@@ -111,10 +112,11 @@ elif [[ $drc -eq 10 ]]; then
     subj="[csair] ${ROUTE_FROM}→${ROUTE_TO} ${DATE} business seats changed"
     {
       echo "To: ${CSAIR_MAIL_TO}"
+      [[ -n "${CSAIR_MAIL_CC:-}" ]] && echo "Cc: ${CSAIR_MAIL_CC}"
       echo "Subject: ${subj}"
       echo
       cat "$BODY_FILE"
-    } | (command -v msmtp >/dev/null && msmtp "${CSAIR_MAIL_TO}" \
+    } | (command -v msmtp >/dev/null && msmtp -t \
          || sendmail -t) \
       && echo "monitor: local email sent to ${CSAIR_MAIL_TO}" >&2
   fi
