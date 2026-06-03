@@ -1,0 +1,15 @@
+# Seat-monitor configuration, read by `csair report` via --config. Single source
+# of truth for which routes/dates are watched and where snapshots live. Add a
+# [[monitor.targets]] block per route+date.
+[monitor]
+snapshotDir = "data/monitor"
+
+[[monitor.targets]]
+from = "SFO"
+to   = "CAN"
+date = "2026-06-10"
+
+[[monitor.targets]]
+from = "SFO"
+to   = "CAN"
+date = "2026-06-14"

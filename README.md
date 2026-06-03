@@ -196,17 +196,28 @@ No WAF and no interactive captcha. The only gate is the Aliyun cookie **`acw_sc_
 
 ## Seat monitor (cron + email alerts)
 
-`scripts/monitor.sh DATE` watches **SFO→CAN business-class, direct only** for one
-departure date, diffs the result against the committed snapshot in
-`data/monitor/SFO-CAN-<date>.json`, and reports when the business seat count
-changes for any flight (keyed by flight number, e.g. `CZ658`). Price changes are
-ignored. Snapshots are committed back, so git history is a free log of every
-seat change. The diff itself is `scripts/diff-seats.sh OLD NEW` (exit 0 = no
-change, 10 = changed + report on stdout).
+Watches **business-class, direct only** for the routes/dates in `monitor.toml`,
+keyed by flight number (e.g. `CZ658`). Price changes are ignored. Snapshots live
+in `data/monitor/<FROM>-<TO>-<date>.json` and are committed back, so git history
+is a free log of every seat change.
+
+The search/diff/digest logic is in the Go binary (`internal/monitor`,
+unit-tested); two subcommands render one combined body across all targets:
+
+```bash
+csair report diff   --config monitor.toml [--write]   # change report; empty if nothing changed
+csair report status --config monitor.toml             # current-status digest (all targets)
+```
+
+`report diff` prints nothing when no business seat count moved (so callers treat
+empty output as "no email"); `--write` persists the fresh snapshot for new
+(baseline) and changed targets. `scripts/report-mail.sh diff|status` is the thin
+orchestration: it mints the token, runs the right subcommand, and ships/sends the
+body.
 
 Behavior: a blocked/expired fetch never overwrites the last-good snapshot or
-sends a bogus alert (the script exits non-zero); the first run per date writes a
-silent baseline; unchanged or price-only results do nothing.
+sends a bogus alert (non-zero exit); a first-seen target writes a silent
+baseline; unchanged or price-only results do nothing.
 
 ### GitHub Actions
 
@@ -218,22 +229,25 @@ Two workflows live in `.github/workflows/`:
    secret). The token mint needs real headless Chrome and may be blocked from
    GitHub's datacenter IPs. Run it a few times across different hours; read the
    "VERDICT GUIDE" in the logs.
-2. **`monitor.yml`** — the scheduled monitor (every 3h, matrix over `2026-06-10`
-   and `2026-06-14`). Enable only after the probe shows the runner can mint.
-   Requires three repo secrets (Settings → Secrets and variables → Actions):
-   `GMAIL_USER`, `GMAIL_APP_PASSWORD` (a 16-char Gmail app password, not your
-   login password), and `NOTIFY_TO`.
+2. **`monitor.yml`** — the scheduled monitor. Enable only after the probe shows
+   the runner can mint. Two modes: an every-3h **change** watch (one combined
+   email when any target moves, snapshots committed back) and a **status** digest
+   (one combined email of current seats) on manual dispatch and daily at 09:00
+   America/Los_Angeles. Requires repo secrets (Settings → Secrets and variables →
+   Actions): `GMAIL_USER`, `GMAIL_APP_PASSWORD` (a 16-char Gmail app password, not
+   your login password), and `NOTIFY_TO`; optional `NOTIFY_CC`.
 
 ### Local cron fallback
 
 If the probe shows the runner is walled, run the fetch from a machine on a
-residential IP instead — same script, end-to-end including email:
+residential IP instead — same scripts, end-to-end including email:
 
 ```bash
 export CSAIR_LOCAL_EMAIL=1 CSAIR_MAIL_TO=you@example.com   # needs msmtp/sendmail
+# export CSAIR_MAIL_CC=partner@example.com                 # optional Cc
 # crontab -e:
-17 */3 * * *  cd ~/github/csair && ./scripts/monitor.sh 2026-06-10 >> ~/.csair-monitor.log 2>&1
-37 */3 * * *  cd ~/github/csair && ./scripts/monitor.sh 2026-06-14 >> ~/.csair-monitor.log 2>&1
+17 */3 * * *  cd ~/github/csair && ./scripts/report-mail.sh diff   >> ~/.csair-monitor.log 2>&1
+0   9 * * *   cd ~/github/csair && ./scripts/report-mail.sh status >> ~/.csair-monitor.log 2>&1
 ```
 
 The local runs still `git commit`/`push` snapshots for the history; no GitHub

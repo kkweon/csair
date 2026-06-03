@@ -1,21 +1,20 @@
 name: seat-monitor
 
-# Watches SFO→CAN business-class seat availability for the monitored dates.
+# Watches the routes/dates in monitor.toml for business-class seat availability.
 # Two modes (chosen per trigger by the setup job):
-#   monitor  every-3h watch — email only when seats change (updates snapshot,
-#            committed back to data/monitor/*.json → free history via git)
-#   status   daily 9am PT + manual dispatch — ONE combined email with the
-#            current seat status across all dates (no diff, snapshots untouched)
+#   monitor  every-3h watch — ONE combined email when any seats change, and the
+#            changed snapshots are committed back (data/monitor/*.json → history)
+#   status   daily 9am PT + manual dispatch — ONE combined email with the current
+#            seat status across all targets (no diff, snapshots untouched)
 #
-# The seat-map/diff/digest rendering lives in Go (internal/monitor, unit-tested);
-# the scripts here are just orchestration (auth + search + send).
+# The search/diff/digest logic lives in the Go binary (`csair report`,
+# internal/monitor, unit-tested); report-mail.sh just mints the token and ships
+# the body. Routes/dates are configured in monitor.toml, not here.
 #
-# PREREQUISITE: confirm a runner can mint the anti-bot token by running the
-# `probe-token` workflow first. If the WAF blocks the runner, use the local-cron
-# fallback in scripts/monitor.sh / status-digest.sh instead (CSAIR_LOCAL_EMAIL=1).
+# PREREQUISITE: confirm a runner can mint the anti-bot token (probe-token). If
+# the WAF blocks the runner, use the local-cron fallback (CSAIR_LOCAL_EMAIL=1).
 #
-# Required repo secrets: GMAIL_USER, GMAIL_APP_PASSWORD (16-char app password),
-# NOTIFY_TO. Optional: NOTIFY_CC.
+# Required repo secrets: GMAIL_USER, GMAIL_APP_PASSWORD, NOTIFY_TO. Optional: NOTIFY_CC.
 
 on:
   schedule:
@@ -44,20 +43,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Decide the mode/run for this trigger and publish the monitored date list as
-  # the single source of truth (consumed by the matrix and the status digest).
+  # Decide the mode/run for this trigger (DST-safe 9am-PT guard for the digest).
   setup:
     runs-on: ubuntu-latest
     outputs:
       mode: ${{ steps.cfg.outputs.mode }}
       run: ${{ steps.cfg.outputs.run }}
-      dates: ${{ steps.cfg.outputs.dates }}
-      datesjson: ${{ steps.cfg.outputs.datesjson }}
     steps:
       - id: cfg
         run: |
-          dates="2026-06-10 2026-06-14"
-          datesjson=$(printf '%s\n' $dates | jq -R . | jq -cs .)
           event='${{ github.event_name }}'
           sched='${{ github.event.schedule }}'
           hour="$(TZ=America/Los_Angeles date +%H)"
@@ -70,24 +64,14 @@ jobs:
             mode=status
             [ "$hour" = "09" ] || run=false
           fi
-          {
-            echo "dates=$dates"
-            echo "datesjson=$datesjson"
-            echo "mode=$mode"
-            echo "run=$run"
-          } >> "$GITHUB_OUTPUT"
-          echo "decided: event=$event sched='$sched' hour=${hour} PT -> mode=$mode run=$run dates=[$dates]"
+          { echo "mode=$mode"; echo "run=$run"; } >> "$GITHUB_OUTPUT"
+          echo "decided: event=$event sched='$sched' hour=${hour} PT -> mode=$mode run=$run"
 
-  # Every-3h change watch: one job per date, emails only on a change.
+  # Every-3h change watch: one combined email on a change; commit changed snapshots.
   monitor:
     needs: setup
     if: needs.setup.outputs.run == 'true' && needs.setup.outputs.mode == 'monitor'
     runs-on: ubuntu-latest
-    strategy:
-      max-parallel: 1       # one Chrome/token mint at a time; serialize pushes
-      fail-fast: false      # a block on one date must not cancel the other
-      matrix:
-        date: ${{ fromJSON(needs.setup.outputs.datesjson) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -104,12 +88,11 @@ jobs:
           "$CHROME" --version
       - name: Build
         run: go build -o csair .
-      - name: Search + diff
+      - name: Report (diff)
         id: run
-        run: scripts/monitor.sh "${{ matrix.date }}"
-        # Sets outputs: email, subject, body_file, changed, baseline, blocked.
-        # Exits non-zero on a block/expiry → email & commit steps are skipped and
-        # GitHub surfaces a "workflow failed" notification.
+        run: scripts/report-mail.sh diff
+        # `csair report diff --write` persists new/changed snapshots. Sets
+        # outputs email/subject/body_file. Non-zero on a block → later steps skip.
       - name: Send email
         if: steps.run.outputs.email == 'true'
         uses: dawidd6/action-send-mail@v3
@@ -124,20 +107,20 @@ jobs:
           cc: ${{ secrets.NOTIFY_CC }}
           subject: ${{ steps.run.outputs.subject }}
           body: file://${{ steps.run.outputs.body_file }}
-      - name: Commit snapshot
-        if: steps.run.outputs.changed == 'true' || steps.run.outputs.baseline == 'true'
+      - name: Commit snapshots
+        # Runs whenever the diff step succeeded (covers baselines too); commits
+        # only if a snapshot actually changed.
         run: |
           set -e
           git config user.name  "csair-monitor[bot]"
           git config user.email "csair-monitor@users.noreply.github.com"
-          git add "data/monitor/SFO-CAN-${{ matrix.date }}.json"
+          git add data/monitor
           git diff --cached --quiet && { echo "nothing to commit"; exit 0; }
-          git commit -m "data: SFO-CAN ${{ matrix.date }} business seats update [skip ci]"
-          # Rebase onto any concurrent push (the other matrix date) before pushing.
+          git commit -m "data: business seats update [skip ci]"
           git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
           git push origin "HEAD:${GITHUB_REF_NAME}"
 
-  # Daily / manual current-status digest: one job, one combined email.
+  # Daily / manual current-status digest: one combined email, snapshots untouched.
   status:
     needs: setup
     if: needs.setup.outputs.run == 'true' && needs.setup.outputs.mode == 'status'
@@ -158,11 +141,9 @@ jobs:
           "$CHROME" --version
       - name: Build
         run: go build -o csair .
-      - name: Status digest
+      - name: Report (status)
         id: run
-        run: scripts/status-digest.sh ${{ needs.setup.outputs.dates }}
-        # One combined email across all dates. Sets outputs: email, subject,
-        # body_file, blocked. Non-zero only if every fetch failed.
+        run: scripts/report-mail.sh status
       - name: Send email
         if: steps.run.outputs.email == 'true'
         uses: dawidd6/action-send-mail@v3

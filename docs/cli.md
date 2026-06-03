@@ -65,19 +65,34 @@ csair auth --clear    # forget cached token
 
 ## `report`
 
-Renders the seat-monitor email bodies from saved `search --json` snapshots. The
-rendering (business seat map, diff, current-status digest, booking link) lives in
-`internal/monitor` and is unit-tested; the monitor scripts call these.
+Renders the seat-monitor email bodies for the routes/dates in the `[monitor]`
+section of the config (pass `--config`). Both subcommands search every configured
+target themselves and print **one combined body**. The rendering (business seat
+map, diff, current-status digest, booking link) lives in `internal/monitor` and is
+unit-tested.
 
 ```
-csair report diff OLD.json NEW.json          # change report; no output if unchanged
-csair report status SNAP.json [SNAP.json …]  # ONE combined current-status digest
+csair report diff   --config monitor.toml [--write]   # combined change report
+csair report status --config monitor.toml             # combined current-status digest
 ```
 
-`report diff` prints nothing and exits 0 when the business seat count is unchanged,
-and prints the change report otherwise — so callers treat empty stdout as "no email".
-`report status` takes one or more snapshots and renders a single digest covering them
-all (the daily/manual status email for every monitored date in one message).
+Config (`monitor.toml`):
+
+```toml
+[monitor]
+snapshotDir = "data/monitor"
+[[monitor.targets]]
+from = "SFO"
+to   = "CAN"
+date = "2026-06-14"
+```
+
+`report diff` prints nothing (exit 0) when no business seat count moved, and the
+combined change report otherwise — callers treat empty stdout as "no email".
+`--write` persists the freshly-fetched snapshot for new (baseline) and changed
+targets to `snapshotDir`, leaving unchanged ones alone. Both subcommands use the
+cached token (run `csair auth` first); if every target fails to fetch they exit
+non-zero so the monitor skips emailing.
 
 ## Output
 
