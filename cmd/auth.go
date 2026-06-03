@@ -46,7 +46,13 @@ var authCmd = &cobra.Command{
 		}
 
 		if flagAttach != "" {
-			fmt.Fprintf(cmd.ErrOrStderr(), "reading session from your Chrome at %s…\n", flagAttach)
+			where := "auto-detecting the port"
+			if flagAttach != auth.AttachAuto {
+				where = "port " + flagAttach
+			}
+			fmt.Fprintf(cmd.ErrOrStderr(),
+				"reading session from your Chrome (%s)…\n"+
+					"→ first open https://b2c.csair.com in that Chrome and run one SFO→CAN search (solve any captcha).\n", where)
 		} else {
 			fmt.Fprintln(cmd.ErrOrStderr(), "bootstrapping session via Chrome…")
 		}

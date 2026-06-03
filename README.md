@@ -125,22 +125,20 @@ shows *"Verification failed"*). The fix is to let **your own Chrome** clear it �
 you browse like a human, and csair just copies the cookies:
 
 ```sh
-# 1) launch your Chrome with a devtools port (dedicated profile recommended)
-google-chrome --remote-debugging-port=9222 --user-data-dir="$HOME/.csair-chrome"
-#   macOS:  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=9222 --user-data-dir="$HOME/.csair-chrome"
+# 1) in your Chrome (which exposes a devtools port), open b2c.csair.com and run
+#    one SFO→CAN search — solve any captcha. This populates the session cookies.
 
-# 2) in that window: open b2c.csair.com and run one SFO→CAN search (solve any captcha)
-
-# 3) csair reads the session from that Chrome — no copy-paste
-csair auth   --attach 9222          # cache it
-csair search SFO CAN 2026-06-14 --attach 9222
-csair scan   SFO CAN 2026-06-10..2026-06-20 --attach 9222
+# 2) csair reads the session from your Chrome. Bare --attach auto-detects the port:
+csair auth   --attach
+csair search SFO CAN 2026-06-14 --attach
+csair scan   SFO CAN 2026-06-10..2026-06-20 --attach
 ```
 
-`--attach` takes a port, `host:port`, or a `ws://` URL. csair only *reads*
-cookies over CDP — it never drives that browser, so the challenge never sees
-automation. Keep the window open and `--reauth` can re-read a fresh session
-automatically.
+`--attach` (bare) auto-detects your running Chrome's debug port; pass `--attach=9222`
+(or `host:port` / a `ws://` URL) to pin one. csair only **reads** cookies over CDP —
+it never drives the browser, so the challenge never sees automation. **Open
+b2c.csair.com and run a search in that Chrome first**, or csair has no session to
+copy. Keep the window open and `--reauth` re-reads a fresh session automatically.
 
 ### Environment
 
