@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"github.com/kkweon/csair/internal/airport"
 	"github.com/kkweon/csair/internal/auth"
 	"github.com/kkweon/csair/internal/clierr"
 	"github.com/kkweon/csair/internal/domain"
@@ -50,11 +51,31 @@ var reportStatusCmd = &cobra.Command{
 	RunE:  runReportStatus,
 }
 
+var reportDueCmd = &cobra.Command{
+	Use:   "due",
+	Short: "Print true while any target's date is still upcoming (departure-airport TZ)",
+	Long: `Prints "true" while at least one monitored date has not yet completely passed
+in its departure airport's local timezone, "false" once they all have. The
+monitor uses this to auto-retire after the trip without watching departed dates.`,
+	Args: cobra.NoArgs,
+	RunE: runReportDue,
+}
+
 func init() {
 	reportDiffCmd.Flags().BoolVar(&reportWrite, "write", false,
 		"persist the freshly-fetched snapshot for new/changed targets to snapshotDir")
-	reportCmd.AddCommand(reportDiffCmd, reportStatusCmd)
+	reportCmd.AddCommand(reportDiffCmd, reportStatusCmd, reportDueCmd)
 	rootCmd.AddCommand(reportCmd)
+}
+
+func runReportDue(cmd *cobra.Command, args []string) error {
+	mc, err := loadMonitorConfig()
+	if err != nil {
+		return err
+	}
+	due := monitor.AnyDue(mc, time.Now(), airport.NewStatic().Zone)
+	fmt.Fprintln(cmd.OutOrStdout(), due)
+	return nil
 }
 
 func runReportStatus(cmd *cobra.Command, args []string) error {

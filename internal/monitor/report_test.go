@@ -170,6 +170,55 @@ func TestConfig(t *testing.T) {
 	}
 }
 
+func TestAnyDue(t *testing.T) {
+	// Fixed instant: 2026-06-14 23:30 Pacific (PDT) = 2026-06-15 06:30 UTC.
+	// In Pacific it is still the 14th; in UTC it is already the 15th — the case
+	// the departure-airport timezone must get right.
+	la, _ := time.LoadLocation("America/Los_Angeles")
+	now := time.Date(2026, 6, 14, 23, 30, 0, 0, la)
+
+	sfo := func(string) (string, error) { return "America/Los_Angeles", nil }
+	cfg := func(date string) Config {
+		return Config{SnapshotDir: "d", Targets: []Target{{From: "SFO", To: "CAN", Date: date}}}
+	}
+
+	if !AnyDue(cfg("2026-06-14"), now, sfo) {
+		t.Error("date == today (Pacific) should still be due")
+	}
+	if AnyDue(cfg("2026-06-13"), now, sfo) {
+		t.Error("date strictly before today (Pacific) should be retired")
+	}
+	if !AnyDue(cfg("2026-06-15"), now, sfo) {
+		t.Error("future date should be due")
+	}
+
+	// Same instant, but the date is in mainland China (Asia/Shanghai, already
+	// the 15th there): the 14th has passed in the departure zone.
+	cn := func(string) (string, error) { return "Asia/Shanghai", nil }
+	if AnyDue(Config{SnapshotDir: "d", Targets: []Target{{From: "CAN", To: "SFO", Date: "2026-06-14"}}}, now, cn) {
+		t.Error("CAN 06-14 should be retired when it is already 06-15 in Shanghai")
+	}
+
+	// Any due target keeps the whole set alive; unknown zone fails open.
+	multi := Config{SnapshotDir: "d", Targets: []Target{
+		{From: "SFO", To: "CAN", Date: "2026-06-01"}, // past
+		{From: "SFO", To: "CAN", Date: "2026-06-20"}, // future
+	}}
+	if !AnyDue(multi, now, sfo) {
+		t.Error("a future target should keep the set due")
+	}
+	bad := func(string) (string, error) { return "", errStub }
+	if !AnyDue(cfg("2026-06-01"), now, bad) {
+		t.Error("unresolvable zone should fail open (due)")
+	}
+}
+
+var errStub = errorString("no zone")
+
+type errorString string
+
+func (e errorString) Error() string { return string(e) }
+
 func TestStatusBody(t *testing.T) {
 	a := biz("SFO", "CAN", "2026-06-10", []flightSeats{{"CZ327", 9}, {"CZ658", 4}})
 	b := biz("SFO", "CAN", "2026-06-14", []flightSeats{

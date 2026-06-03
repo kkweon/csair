@@ -47,6 +47,17 @@ BODY_FILE="$(mktemp)"
 
 out() { [[ -n "${GITHUB_OUTPUT:-}" ]] && echo "$1=$2" >>"$GITHUB_OUTPUT"; }
 
+# --- 0. Auto-retire once every monitored date is past. ----------------------
+# `report due` prints "true" while any date is still upcoming in its departure
+# airport's timezone, "false" once they all have. Skip everything (no token, no
+# email) when there is nothing left to watch. A non-zero/odd result fails open
+# (keeps running) so a transient error never silences the monitor.
+due="$("${CSAIR[@]}" report due --config "$CONFIG")"
+if [[ "$due" == "false" ]]; then
+  echo "report-mail: all monitored dates have passed (departure-airport TZ) — nothing to do." >&2
+  exit 0
+fi
+
 # --- 1. Mint a token once for the whole run. --------------------------------
 echo "report-mail: minting token…" >&2
 if ! "${CSAIR[@]}" auth >&2; then
