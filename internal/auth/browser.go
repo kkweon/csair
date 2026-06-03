@@ -296,17 +296,28 @@ func devtoolsWS(attach string) (string, error) {
 // detectDebugPort finds a running Chrome's devtools port: first from process
 // command lines, then a few common ports, verifying each responds.
 func detectDebugPort() (string, error) {
-	for _, p := range scanProcPorts() {
+	scanned := scanProcPorts()
+	for _, p := range scanned {
 		if probeDevtools(p) {
 			return p, nil
 		}
 	}
-	for _, p := range []string{"9222", "9223", "9229"} {
+	common := []string{"9222", "9223", "9229"}
+	for _, p := range common {
 		if probeDevtools(p) {
 			return p, nil
 		}
 	}
-	return "", fmt.Errorf("%w: no Chrome with remote debugging found — start Chrome with --remote-debugging-port (or pass --attach=PORT)", clierr.ErrBlocked)
+	return "", fmt.Errorf("%w: no reachable Chrome devtools port (found in processes: %v; also tried %v).\n"+
+		"Start Chrome with --remote-debugging-port=9222, then: csair ... --attach=9222",
+		clierr.ErrBlocked, orNone(scanned), common)
+}
+
+func orNone(s []string) string {
+	if len(s) == 0 {
+		return "none"
+	}
+	return strings.Join(s, ", ")
 }
 
 var debugPortRe = regexp.MustCompile(`--remote-debugging-port[=\s]+(\d+)`)
@@ -330,7 +341,8 @@ func scanProcPorts() []string {
 		}
 		return out
 	}
-	if b, err := exec.Command("ps", "-axo", "command").Output(); err == nil { // macOS/BSD
+	// macOS/BSD: -ww prevents truncating Chrome's (very long) command line.
+	if b, err := exec.Command("ps", "-axww", "-o", "command=").Output(); err == nil {
 		add(string(b))
 	}
 	return out
