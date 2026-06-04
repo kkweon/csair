@@ -95,11 +95,12 @@ func (s Snapshot) BusinessSeats() map[string]int {
 }
 
 // Change is one flight's business-seat change between two snapshots. A nil Old
-// means the flight is newly present; a nil New means it disappeared.
+// means the flight is newly present; a nil New means it disappeared. The json
+// tags let it serialize directly into the report's --out result file.
 type Change struct {
-	Flight string
-	Old    *int
-	New    *int
+	Flight string `json:"flight"`
+	Old    *int   `json:"old"`
+	New    *int   `json:"new"`
 }
 
 // Diff returns the flights whose business-seat count changed from prev to cur,

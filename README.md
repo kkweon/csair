@@ -245,8 +245,11 @@ Two workflows live in `.github/workflows/`:
 If the probe shows the runner is walled, run the fetch from a machine on a
 residential IP instead — same scripts, end-to-end including email:
 
+The scripts need `jq` on `PATH` (preinstalled on GitHub runners) to read the
+report's JSON result.
+
 ```bash
-export CSAIR_LOCAL_EMAIL=1 CSAIR_MAIL_TO=you@example.com   # needs msmtp/sendmail
+export CSAIR_LOCAL_EMAIL=1 CSAIR_MAIL_TO=you@example.com   # needs msmtp/sendmail + jq
 # export CSAIR_MAIL_CC=partner@example.com                 # optional Cc
 # crontab -e:
 17 */3 * * *  cd ~/github/csair && ./scripts/report-mail.sh diff   >> ~/.csair-monitor.log 2>&1

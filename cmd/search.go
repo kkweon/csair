@@ -142,7 +142,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 }
 
 func doSearch(ctx context.Context, tok auth.Token, req domain.SearchRequest) (*domain.SearchResult, error) {
-	q, err := newQueryService(tok)
+	q, err := newQueryService(tok, verboseTransportOpts()...)
 	if err != nil {
 		return nil, err
 	}

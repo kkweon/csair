@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/spf13/viper"
@@ -193,7 +194,7 @@ func TestSearchTarget(t *testing.T) {
 	}}
 	stub := &stubQS{res: res}
 
-	got, err := searchTarget(context.Background(), stub, monitor.Target{From: "sfo", To: "can", Date: "2026-06-17"})
+	got, err := searchTarget(context.Background(), stub, monitor.Target{From: "sfo", To: "can", Date: "2026-06-17"}, rlogger{})
 	if err != nil {
 		t.Fatalf("searchTarget: %v", err)
 	}
@@ -211,6 +212,75 @@ func TestSearchTarget(t *testing.T) {
 	}
 	if !equalStrings(keys, []string{"CZ659", "CZ658"}) {
 		t.Errorf("kept = %v, want [CZ659 CZ658]", keys)
+	}
+}
+
+// TestReportResultJSON locks the field names the orchestration script reads
+// with jq (.email/.subject/.body and the per-target/summary shape). A rename
+// here would silently break report-mail.sh, so the contract is pinned.
+func TestReportResultJSON(t *testing.T) {
+	old, cur := 8, 7
+	r := reportResult{
+		Mode:    "diff",
+		Email:   true,
+		Subject: subjectDiff,
+		Body:    "Business seat changes …\n",
+		Token:   tokenInfo{Source: "cache", Cookies: 17, ACW: "abc…", Expires: "2026-06-04T01:48:05Z"},
+		Targets: []targetResult{{
+			From: "SFO", To: "CAN", Date: "2026-06-14", OK: true,
+			Itineraries: 5, BusinessFlights: 3, Seats: map[string]int{"CZ658": 7},
+			Prior: "compared", Snapshot: "data/monitor/SFO-CAN-2026-06-14.json",
+			Outcome: "changed", Changes: []monitor.Change{{Flight: "CZ658", Old: &old, New: &cur}},
+		}},
+		Summary: reportSummary{Checked: 3, Changed: 1, Baseline: 1, Unchanged: 1},
+	}
+	b, err := json.Marshal(r)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	for _, k := range []string{"mode", "email", "subject", "body", "token", "targets", "summary"} {
+		if _, ok := got[k]; !ok {
+			t.Errorf("result JSON missing top-level field %q", k)
+		}
+	}
+	if got["email"] != true {
+		t.Errorf("email = %v, want true", got["email"])
+	}
+	if got["subject"] != subjectDiff {
+		t.Errorf("subject = %v, want %q", got["subject"], subjectDiff)
+	}
+	tgt := got["targets"].([]any)[0].(map[string]any)
+	for _, k := range []string{"from", "to", "date", "ok", "itineraries", "businessFlights", "seats", "prior", "outcome", "changes"} {
+		if _, ok := tgt[k]; !ok {
+			t.Errorf("target JSON missing field %q", k)
+		}
+	}
+	if tgt["outcome"] != "changed" {
+		t.Errorf("target outcome = %v, want changed", tgt["outcome"])
+	}
+	ch := tgt["changes"].([]any)[0].(map[string]any)
+	for _, k := range []string{"flight", "old", "new"} {
+		if _, ok := ch[k]; !ok {
+			t.Errorf("change JSON missing field %q", k)
+		}
+	}
+	sum := got["summary"].(map[string]any)
+	if sum["changed"].(float64) != 1 {
+		t.Errorf("summary.changed = %v, want 1", sum["changed"])
+	}
+}
+
+// TestSeatsLine covers the seat-map narration: sorted, sold-out flagged.
+func TestSeatsLine(t *testing.T) {
+	if got := seatsLine(map[string]int{"CZ660": 0, "CZ658": 7}); got != "CZ658=7 CZ660=NO-SEATS" {
+		t.Errorf("seatsLine = %q, want %q", got, "CZ658=7 CZ660=NO-SEATS")
+	}
+	if got := seatsLine(nil); got != "(none)" {
+		t.Errorf("seatsLine(nil) = %q, want (none)", got)
 	}
 }
 

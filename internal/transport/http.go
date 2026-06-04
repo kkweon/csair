@@ -35,6 +35,7 @@ type HTTPRequester interface {
 type Client struct {
 	hc      *http.Client
 	referer string
+	logw    io.Writer // when non-nil, one line per request (method, URL, status, bytes, elapsed)
 
 	mu     sync.Mutex
 	last   time.Time
@@ -50,6 +51,13 @@ type Option func(*Client)
 // the snappier interactive-search default.
 func WithPacing(minGap, jitter time.Duration) Option {
 	return func(c *Client) { c.minGap, c.jitter = minGap, jitter }
+}
+
+// WithVerbose makes the client narrate each request to w (method, URL, status,
+// response size, elapsed) plus anti-bot/upstream failures. The seat monitor
+// turns this on so a run leaves a complete trace of what it fetched.
+func WithVerbose(w io.Writer) Option {
+	return func(c *Client) { c.logw = w }
 }
 
 // New builds a Client whose cookie jar is seeded with the anti-bot token.
@@ -130,9 +138,17 @@ func (c *Client) PostJSON(ctx context.Context, rawURL string, body any) ([]byte,
 	// A JSON endpoint returning HTML means the anti-bot served an interstitial
 	// (typically a stale/expired acw_sc__v2 token).
 	if looksHTML(b) {
+		c.logf("http: %s returned HTML (anti-bot interstitial — acw token likely expired)", rawURL)
 		return nil, fmt.Errorf("%w: JSON endpoint returned HTML (acw token likely expired — run 'csair auth')", clierr.ErrBlocked)
 	}
 	return b, nil
+}
+
+// logf writes one diagnostic line when verbose logging is enabled (no-op otherwise).
+func (c *Client) logf(format string, a ...any) {
+	if c.logw != nil {
+		fmt.Fprintf(c.logw, format+"\n", a...)
+	}
 }
 
 func looksHTML(b []byte) bool {
@@ -149,8 +165,10 @@ func (c *Client) do(req *http.Request) ([]byte, error) {
 	}
 	c.pace()
 
+	start := time.Now()
 	resp, err := c.hc.Do(req)
 	if err != nil {
+		c.logf("http: %s %s -> error: %v", req.Method, req.URL, err)
 		return nil, err
 	}
 	defer resp.Body.Close()
@@ -158,10 +176,13 @@ func (c *Client) do(req *http.Request) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	c.logf("http: %s %s -> %d (%d bytes, %s)", req.Method, req.URL, resp.StatusCode, len(b), time.Since(start).Round(time.Millisecond))
 	if resp.StatusCode == http.StatusForbidden || bytes.Contains(b, []byte("need.captcha")) || bytes.Contains(b, []byte("CZWEB000010")) {
+		c.logf("http: %s blocked by anti-bot (status %d)", req.URL, resp.StatusCode)
 		return nil, fmt.Errorf("%w: status %d", clierr.ErrBlocked, resp.StatusCode)
 	}
 	if resp.StatusCode >= 400 {
+		c.logf("http: %s upstream error (status %d)", req.URL, resp.StatusCode)
 		return nil, fmt.Errorf("%w: status %d", clierr.ErrUpstream, resp.StatusCode)
 	}
 	return b, nil

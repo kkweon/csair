@@ -13,6 +13,7 @@ import (
 
 	"github.com/kkweon/csair/internal/clierr"
 	"github.com/kkweon/csair/internal/render"
+	"github.com/kkweon/csair/internal/transport"
 )
 
 var (
@@ -96,6 +97,16 @@ func initConfig() {
 	viper.SetEnvPrefix("CSAIR")
 	viper.AutomaticEnv()
 	_ = viper.ReadInConfig()
+}
+
+// verboseTransportOpts returns the transport options that enable per-request
+// logging when --verbose (-v) is set, so interactive `search -v` narrates its
+// HTTP calls to stdout. With the flag off it returns nothing (the default).
+func verboseTransportOpts() []transport.Option {
+	if flagVerbose {
+		return []transport.Option{transport.WithVerbose(os.Stdout)}
+	}
+	return nil
 }
 
 // outputMode resolves the --json/--table/--csv flags into a render.Mode.
