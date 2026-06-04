@@ -201,8 +201,11 @@ flight number (e.g. `CZ658`). Nonstop-only by default; a target may set an
 optional `flights = ["CZ660"]` allowlist to instead track specific itineraries by
 flight key — including a 1-stop through-flight (`"CZ660"`) or a named connection
 (`"CZ660+CZ8004"`), which bypasses the nonstop filter. Price changes are ignored.
-Snapshots live in `data/monitor/<FROM>-<TO>-<date>.json` and are committed back,
-so git history is a free log of every seat change.
+Snapshots live in `data/monitor/<FROM>-<TO>-<date>.json`; when you run
+`report diff --write` (by hand or via the local-cron fallback), changed
+snapshots are committed back, so git history is a free log of every seat change.
+The scheduled GitHub Actions monitor only emails a status digest and does not
+touch snapshots.
 
 The search/diff/digest logic is in the Go binary (`internal/monitor`,
 unit-tested); two subcommands render one combined body across all targets:
@@ -233,12 +236,14 @@ Two workflows live in `.github/workflows/`:
    GitHub's datacenter IPs. Run it a few times across different hours; read the
    "VERDICT GUIDE" in the logs.
 2. **`monitor.yml`** — the scheduled monitor. Enable only after the probe shows
-   the runner can mint. Two modes: an every-3h **change** watch (one combined
-   email when any target moves, snapshots committed back) and a **status** digest
-   (one combined email of current seats) on manual dispatch and daily at 09:00
-   America/Los_Angeles. Requires repo secrets (Settings → Secrets and variables →
-   Actions): `GMAIL_USER`, `GMAIL_APP_PASSWORD` (a 16-char Gmail app password, not
-   your login password), and `NOTIFY_TO`; optional `NOTIFY_CC`.
+   the runner can mint. It emails a **status** digest (one combined email of
+   current seats) four times a day — 08:00 / 12:00 / 16:00 / 20:00
+   America/Los_Angeles (morning / lunch / afternoon / evening, DST-aware via the
+   cron `timezone:` field) — and on manual dispatch. It does not diff or commit
+   snapshots; for that, run `report diff` by hand (see below). Requires repo
+   secrets (Settings → Secrets and variables → Actions): `GMAIL_USER`,
+   `GMAIL_APP_PASSWORD` (a 16-char Gmail app password, not your login password),
+   and `NOTIFY_TO`; optional `NOTIFY_CC`.
 
 ### Local cron fallback
 
@@ -251,13 +256,15 @@ report's JSON result.
 ```bash
 export CSAIR_LOCAL_EMAIL=1 CSAIR_MAIL_TO=you@example.com   # needs msmtp/sendmail + jq
 # export CSAIR_MAIL_CC=partner@example.com                 # optional Cc
-# crontab -e:
-17 */3 * * *  cd ~/github/csair && ./scripts/report-mail.sh diff   >> ~/.csair-monitor.log 2>&1
-0   9 * * *   cd ~/github/csair && ./scripts/report-mail.sh status >> ~/.csair-monitor.log 2>&1
+# crontab -e (times are this machine's local time):
+17 8,12,16,20 * * *  cd ~/github/csair && ./scripts/report-mail.sh status >> ~/.csair-monitor.log 2>&1
+# Optional change watch — emails only when seats move, and commits the changed
+# data/monitor/*.json snapshots back, so git history logs every seat change:
+# 17 */3 * * *       cd ~/github/csair && ./scripts/report-mail.sh diff   >> ~/.csair-monitor.log 2>&1
 ```
 
-The local runs still `git commit`/`push` snapshots for the history; no GitHub
-Actions needed in that mode.
+Only the `diff` run `git commit`/`push`es snapshots; the status digest leaves
+them untouched. No GitHub Actions needed in this mode.
 
 ## Status
 

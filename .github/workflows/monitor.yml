@@ -1,13 +1,13 @@
 name: seat-monitor
 
-# Watches the routes/dates in monitor.toml for business-class seat availability.
-# Two modes (chosen per trigger by the setup job):
-#   monitor  every-3h watch — ONE combined email when any seats change, and the
-#            changed snapshots are committed back (data/monitor/*.json → history)
-#   status   daily 9am PT + manual dispatch — ONE combined email with the current
-#            seat status across all targets (no diff, snapshots untouched)
+# Watches the routes/dates in monitor.toml for business-class seat availability
+# and emails a STATUS digest — ONE combined email of the current business-class
+# seat counts across all targets — four times a day (morning / lunch /
+# afternoon / evening, PT) plus on manual dispatch. No diffing or snapshot
+# commits; that path lives in `csair report diff` / report-mail.sh diff for
+# manual/local use.
 #
-# The search/diff/digest logic lives in the Go binary (`csair report`,
+# The search/digest logic lives in the Go binary (`csair report`,
 # internal/monitor, unit-tested); report-mail.sh just mints the token and ships
 # the body. Routes/dates are configured in monitor.toml, not here.
 #
@@ -18,112 +18,31 @@ name: seat-monitor
 
 on:
   schedule:
-    # Every 3 hours, at :17 (avoids the congested top-of-hour). UTC. → monitor.
-    - cron: "17 */3 * * *"
-    # Daily status digest at 09:00 America/Los_Angeles. GitHub cron is UTC with
-    # no DST, so we fire at both 16:00 (PDT=09:00) and 17:00 (PST=09:00) UTC and
-    # the setup job's hour-guard lets through only the one that is 09:00 PT today.
-    - cron: "0 16 * * *"
-    - cron: "0 17 * * *"
-  workflow_dispatch:
-    inputs:
-      mode:
-        description: "status = email current seats now; monitor = email only if seats changed"
-        type: choice
-        default: status
-        options:
-          - status
-          - monitor
+    # Status digest at 08:17 / 12:17 / 16:17 / 20:17 America/Los_Angeles
+    # (morning / lunch / afternoon / evening). The :17 minute avoids the
+    # congested top-of-hour (GitHub may delay schedule runs under load); the
+    # timezone field is DST-aware, so these stay at local PT year-round.
+    - cron: "17 8 * * *"
+      timezone: "America/Los_Angeles"
+    - cron: "17 12 * * *"
+      timezone: "America/Los_Angeles"
+    - cron: "17 16 * * *"
+      timezone: "America/Los_Angeles"
+    - cron: "17 20 * * *"
+      timezone: "America/Los_Angeles"
+  workflow_dispatch:        # runs a status digest now
 
 permissions:
-  contents: write          # to commit updated snapshots back (monitor mode)
+  contents: read
 
 concurrency:
   group: seat-monitor
   cancel-in-progress: false
 
 jobs:
-  # Decide the mode/run for this trigger (DST-safe 9am-PT guard for the digest).
-  setup:
-    runs-on: ubuntu-latest
-    outputs:
-      mode: ${{ steps.cfg.outputs.mode }}
-      run: ${{ steps.cfg.outputs.run }}
-    steps:
-      - id: cfg
-        run: |
-          event='${{ github.event_name }}'
-          sched='${{ github.event.schedule }}'
-          hour="$(TZ=America/Los_Angeles date +%H)"
-          mode=monitor; run=true
-          if [ "$event" = "workflow_dispatch" ]; then
-            mode='${{ github.event.inputs.mode }}'; [ -n "$mode" ] || mode=status
-          elif [ "$sched" = "17 */3 * * *" ]; then
-            mode=monitor
-          else
-            mode=status
-            [ "$hour" = "09" ] || run=false
-          fi
-          { echo "mode=$mode"; echo "run=$run"; } >> "$GITHUB_OUTPUT"
-          echo "decided: event=$event sched='$sched' hour=${hour} PT -> mode=$mode run=$run"
-
-  # Every-3h change watch: one combined email on a change; commit changed snapshots.
-  monitor:
-    needs: setup
-    if: needs.setup.outputs.run == 'true' && needs.setup.outputs.mode == 'monitor'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version: "1.26"
-          cache: true
-      - uses: browser-actions/setup-chrome@v2
-        id: chrome
-      - name: Resolve Chrome
-        run: |
-          CHROME="${{ steps.chrome.outputs.chrome-path }}"
-          [ -n "$CHROME" ] || CHROME="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium-browser)"
-          echo "CSAIR_CHROME=$CHROME" >> "$GITHUB_ENV"
-          "$CHROME" --version
-      - name: Build
-        run: go build -o csair .
-      - name: Report (diff)
-        id: run
-        run: scripts/report-mail.sh diff
-        # `csair report diff --write` persists new/changed snapshots. Sets
-        # outputs email/subject/body_file. Non-zero on a block → later steps skip.
-      - name: Send email
-        if: steps.run.outputs.email == 'true'
-        uses: dawidd6/action-send-mail@v17
-        with:
-          server_address: smtp.gmail.com
-          server_port: 465
-          secure: true
-          username: ${{ secrets.GMAIL_USER }}
-          password: ${{ secrets.GMAIL_APP_PASSWORD }}
-          from: csair monitor <${{ secrets.GMAIL_USER }}>
-          to: ${{ secrets.NOTIFY_TO }}
-          cc: ${{ secrets.NOTIFY_CC }}
-          subject: ${{ steps.run.outputs.subject }}
-          body: file://${{ steps.run.outputs.body_file }}
-      - name: Commit snapshots
-        # Runs whenever the diff step succeeded (covers baselines too); commits
-        # only if a snapshot actually changed.
-        run: |
-          set -e
-          git config user.name  "csair-monitor[bot]"
-          git config user.email "csair-monitor@users.noreply.github.com"
-          git add data/monitor
-          git diff --cached --quiet && { echo "nothing to commit"; exit 0; }
-          git commit -m "data: business seats update [skip ci]"
-          git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
-
-  # Daily / manual current-status digest: one combined email, snapshots untouched.
+  # Current-status digest: one combined email of business seats across all
+  # targets. Runs on every schedule slot (08/12/16/20 PT) and on manual dispatch.
   status:
-    needs: setup
-    if: needs.setup.outputs.run == 'true' && needs.setup.outputs.mode == 'status'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

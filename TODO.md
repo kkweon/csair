@@ -9,7 +9,7 @@ The seat monitor only watches the dates in `monitor.toml` (currently
 departure airport's timezone, `report due` returns `false` and `report-mail.sh`
 no-ops — no token mint, no email. So no flights-already-departed digests get
 sent. The steps below are optional housekeeping (the scheduled runs still spin
-up a runner every 3h and exit early until you remove the schedule):
+up a runner 4×/day and exit early until you remove the schedule):
 
 - [ ] Disable the schedule in `.github/workflows/monitor.yml` — drop the `cron:`
       entries (keep `workflow_dispatch` if you want to run it ad hoc), or disable
