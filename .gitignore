@@ -17,6 +17,9 @@ acw.json
 .idea/
 .vscode/
 
+# Claude Code
+.claude/
+
 # Scratch API captures
 /tmp/
 *.network-response
