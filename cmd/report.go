@@ -104,17 +104,35 @@ func runReportStatus(cmd *cobra.Command, args []string) error {
 	}
 	ctx := cmd.Context()
 	log := reportLogger(cmd)
-	qs, tok, err := newReportService(ctx)
-	if err != nil {
-		return err
-	}
+	now := time.Now()
+
 	log.logf("status run: %d target(s) (config %s)", len(mc.Targets), viper.ConfigFileUsed())
-	log.logf("token: %s", tokenLine(tok))
+	due, retired := dueTargets(mc, now, log)
 
 	var snaps []monitor.Snapshot
 	var targets []targetResult
 	var summary reportSummary
-	for _, t := range mc.Targets {
+
+	// Every target's departure date has passed in its own zone: nothing to
+	// fetch. Not a failure — a clean no-op (no token, no email).
+	if len(due) == 0 {
+		log.logf("status: all %d target(s) retired (departure dates passed) — nothing to do", retired)
+		if reportOut != "" {
+			return writeReportResult(reportResult{
+				Mode: "status", AsOf: now, Email: false, Subject: subjectStatus,
+				Body: monitor.StatusBody(nil, now), Targets: targets, Summary: summary,
+			})
+		}
+		return nil
+	}
+
+	qs, tok, err := newReportService(ctx)
+	if err != nil {
+		return err
+	}
+	log.logf("token: %s", tokenLine(tok))
+
+	for _, t := range due {
 		summary.Checked++
 		tr := targetResult{From: t.From, To: t.To, Date: t.Date}
 		res, err := searchTarget(ctx, qs, t, log)
@@ -134,16 +152,18 @@ func runReportStatus(cmd *cobra.Command, args []string) error {
 		log.logf("%s→%s %s: %d itinerary(ies), %d business flight(s)", t.From, t.To, t.Date, len(res.Itineraries), len(seats))
 		log.logf("  seats: %s", seatsLine(seats))
 	}
-	if len(snaps) == 0 {
+	// Error only when there was work and all of it failed (the WAF/token case),
+	// never when targets were simply retired above.
+	if summary.Checked > 0 && len(snaps) == 0 {
 		return fmt.Errorf("%w: every monitored search failed", clierr.ErrBlocked)
 	}
-	now := time.Now()
 	body := monitor.StatusBody(snaps, now)
+	log.logf("summary: checked %d, failed %d, retired %d", summary.Checked, summary.Failed, retired)
 	log.logf("status digest: %d target(s) — emailing", len(snaps))
 
 	if reportOut != "" {
 		return writeReportResult(reportResult{
-			Mode: "status", AsOf: now, Email: true, Subject: subjectStatus,
+			Mode: "status", AsOf: now, Email: len(snaps) > 0, Subject: subjectStatus,
 			Body: body, Token: tok, Targets: targets, Summary: summary,
 		})
 	}
@@ -158,12 +178,10 @@ func runReportDiff(cmd *cobra.Command, args []string) error {
 	}
 	ctx := cmd.Context()
 	log := reportLogger(cmd)
-	qs, tok, err := newReportService(ctx)
-	if err != nil {
-		return err
-	}
+	now := time.Now()
+
 	log.logf("diff run: %d target(s) (config %s)", len(mc.Targets), viper.ConfigFileUsed())
-	log.logf("token: %s", tokenLine(tok))
+	due, retired := dueTargets(mc, now, log)
 
 	type fetched struct {
 		path    string
@@ -176,7 +194,27 @@ func runReportDiff(cmd *cobra.Command, args []string) error {
 	var got []fetched
 	var targets []targetResult
 	var summary reportSummary
-	for _, t := range mc.Targets {
+
+	// Every target's departure date has passed: nothing to diff (no token, no
+	// email). Distinct from "all searches failed" below.
+	if len(due) == 0 {
+		log.logf("diff: all %d target(s) retired (departure dates passed) — nothing to do", retired)
+		if reportOut != "" {
+			return writeReportResult(reportResult{
+				Mode: "diff", AsOf: now, Email: false, Subject: subjectDiff,
+				Body: "", Targets: targets, Summary: summary,
+			})
+		}
+		return nil
+	}
+
+	qs, tok, err := newReportService(ctx)
+	if err != nil {
+		return err
+	}
+	log.logf("token: %s", tokenLine(tok))
+
+	for _, t := range due {
 		summary.Checked++
 		tr := targetResult{From: t.From, To: t.To, Date: t.Date}
 		res, err := searchTarget(ctx, qs, t, log)
@@ -218,7 +256,9 @@ func runReportDiff(cmd *cobra.Command, args []string) error {
 		targets = append(targets, tr)
 		got = append(got, fetched{path: path, res: res, cur: cur, prev: prev, hasPrev: hasPrev})
 	}
-	if len(got) == 0 {
+	// Error only when there was work and all of it failed (the WAF/token case),
+	// never when targets were simply retired above.
+	if summary.Checked > 0 && len(got) == 0 {
 		return fmt.Errorf("%w: every monitored search failed", clierr.ErrBlocked)
 	}
 
@@ -228,7 +268,6 @@ func runReportDiff(cmd *cobra.Command, args []string) error {
 			items = append(items, monitor.DiffItem{Prev: f.prev, Cur: f.cur})
 		}
 	}
-	now := time.Now()
 	digest := monitor.ChangeDigest(items, now)
 
 	// --write persists a snapshot for first-seen (baseline) and changed targets;
@@ -250,8 +289,8 @@ func runReportDiff(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	log.logf("summary: checked %d, changed %d, baseline %d, unchanged %d, failed %d",
-		summary.Checked, summary.Changed, summary.Baseline, summary.Unchanged, summary.Failed)
+	log.logf("summary: checked %d, changed %d, baseline %d, unchanged %d, failed %d, retired %d",
+		summary.Checked, summary.Changed, summary.Baseline, summary.Unchanged, summary.Failed, retired)
 	email := digest != ""
 	if email {
 		log.logf("change digest ready (%d target(s) changed) — emailing", summary.Changed)
@@ -279,6 +318,27 @@ func loadMonitorConfig() (monitor.Config, error) {
 		return mc, fmt.Errorf("%w: %v (set [monitor] in --config)", clierr.ErrUsage, err)
 	}
 	return mc, nil
+}
+
+// dueTargets splits the configured targets into the still-due ones (to be
+// searched) and logs each retired target — one whose departure date has already
+// passed in its DEPARTURE-airport timezone (monitor.TargetDue). Retired targets
+// are dropped from the search/digest entirely; the log line makes each skip
+// visible in the CI run. Returns the due targets (config order preserved) and
+// the retired count for the summary line.
+func dueTargets(mc monitor.Config, now time.Time, log rlogger) ([]monitor.Target, int) {
+	zoneOf := airport.NewStatic().Zone
+	var due []monitor.Target
+	var retired int
+	for _, t := range mc.Targets {
+		if !monitor.TargetDue(t, now, zoneOf) {
+			retired++
+			log.logf("%s→%s %s: retired — departure date passed (departure-airport TZ); skipping", t.From, t.To, t.Date)
+			continue
+		}
+		due = append(due, t)
+	}
+	return due, retired
 }
 
 // Monitor pacing: a whole report run shares one transport client, so the pacer

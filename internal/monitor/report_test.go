@@ -211,6 +211,44 @@ func TestConfig(t *testing.T) {
 	}
 }
 
+func TestTargetDue(t *testing.T) {
+	// Fixed instant: 2026-06-14 23:30 Pacific (PDT) = 2026-06-15 06:30 UTC.
+	// In Pacific it is still the 14th; in Shanghai it is already the 15th.
+	la, _ := time.LoadLocation("America/Los_Angeles")
+	now := time.Date(2026, 6, 14, 23, 30, 0, 0, la)
+
+	sfo := func(string) (string, error) { return "America/Los_Angeles", nil }
+	tgt := func(from, date string) Target { return Target{From: from, To: "CAN", Date: date} }
+
+	cases := []struct {
+		name   string
+		t      Target
+		zoneOf ZoneFunc
+		want   bool
+	}{
+		{"today (Pacific) is inclusive", tgt("SFO", "2026-06-14"), sfo, true},
+		{"strictly past is retired", tgt("SFO", "2026-06-13"), sfo, false},
+		{"future is due", tgt("SFO", "2026-06-15"), sfo, true},
+		{
+			"departure zone rolls the date: CAN 06-14 already passed in Shanghai",
+			tgt("CAN", "2026-06-14"),
+			func(string) (string, error) { return "Asia/Shanghai", nil },
+			false,
+		},
+		{
+			"unresolvable zone fails open (due)",
+			tgt("SFO", "2026-06-01"),
+			func(string) (string, error) { return "", errStub },
+			true,
+		},
+	}
+	for _, c := range cases {
+		if got := TargetDue(c.t, now, c.zoneOf); got != c.want {
+			t.Errorf("%s: TargetDue = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
 func TestAnyDue(t *testing.T) {
 	// Fixed instant: 2026-06-14 23:30 Pacific (PDT) = 2026-06-15 06:30 UTC.
 	// In Pacific it is still the 14th; in UTC it is already the 15th — the case

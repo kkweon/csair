@@ -5,12 +5,43 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
 
 	"github.com/kkweon/csair/internal/domain"
 	"github.com/kkweon/csair/internal/monitor"
 )
+
+// TestDueTargets pins the per-target retirement filter against the REAL airport
+// catalog: past dates are dropped, config order is preserved among the due ones,
+// and the cross-zone case (CAN on the 14th has already passed once it is the
+// 15th in Asia/Shanghai) is exercised end-to-end.
+func TestDueTargets(t *testing.T) {
+	// 2026-06-14 23:30 Pacific: still the 14th in LA, already the 15th in Shanghai.
+	la, _ := time.LoadLocation("America/Los_Angeles")
+	now := time.Date(2026, 6, 14, 23, 30, 0, 0, la)
+
+	mc := monitor.Config{SnapshotDir: "d", Targets: []monitor.Target{
+		{From: "SFO", To: "CAN", Date: "2026-06-13"}, // past in Pacific  -> retired
+		{From: "SFO", To: "CAN", Date: "2026-06-14"}, // today in Pacific -> due
+		{From: "CAN", To: "SFO", Date: "2026-06-14"}, // already 15th in Shanghai -> retired
+		{From: "SFO", To: "CAN", Date: "2026-06-20"}, // future -> due
+	}}
+
+	due, retired := dueTargets(mc, now, rlogger{})
+	if retired != 2 {
+		t.Errorf("retired = %d, want 2", retired)
+	}
+	gotDates := []string{}
+	for _, d := range due {
+		gotDates = append(gotDates, d.From+" "+d.Date)
+	}
+	want := []string{"SFO 2026-06-14", "SFO 2026-06-20"}
+	if !equalStrings(gotDates, want) {
+		t.Errorf("due = %v, want %v", gotDates, want)
+	}
+}
 
 // seg builds a single marketing segment (no times needed for filtering).
 func seg(carrier, no, from, to string) domain.Segment {

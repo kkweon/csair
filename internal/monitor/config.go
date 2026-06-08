@@ -36,26 +36,36 @@ func (c Config) SnapshotPath(t Target) string {
 // ZoneFunc resolves an IATA code to its IANA timezone name.
 type ZoneFunc func(iata string) (string, error)
 
-// AnyDue reports whether the monitor still has work to do: at least one target's
-// departure date has not yet completely passed in that route's DEPARTURE-airport
-// timezone. The comparison is inclusive — a target is due through all of its
-// departure date (local), only retiring after local midnight rolls past it.
+// TargetDue reports whether a single target's departure date has not yet
+// completely passed in its DEPARTURE-airport timezone. The comparison is
+// inclusive — a target is due through all of its departure date (local), only
+// retiring after local midnight rolls past it.
 //
 // Using the departure airport's own zone (not the runner's UTC) is the point:
 // a SFO flight on the 14th is still "today" until Pacific midnight, hours after
-// UTC has rolled to the 15th. A target whose zone or date can't be resolved is
-// treated as due (fail open — never stop monitoring early).
+// UTC has rolled to the 15th. Fail open — a target whose zone can't be resolved
+// or whose IANA location won't load is treated as due, so we never stop
+// monitoring early. Dates are compared as zero-padded YYYY-MM-DD strings (a
+// malformed date is not parsed here; a due target carries it on to the search,
+// which surfaces the error there).
+func TargetDue(t Target, now time.Time, zoneOf ZoneFunc) bool {
+	zone, err := zoneOf(t.From)
+	if err != nil {
+		return true
+	}
+	loc, err := time.LoadLocation(zone)
+	if err != nil {
+		return true
+	}
+	return now.In(loc).Format("2006-01-02") <= t.Date
+}
+
+// AnyDue reports whether the monitor still has work to do: at least one target
+// is still due per TargetDue. The whole monitored set retires only once every
+// target's departure date has passed in its own departure-airport timezone.
 func AnyDue(c Config, now time.Time, zoneOf ZoneFunc) bool {
 	for _, t := range c.Targets {
-		zone, err := zoneOf(t.From)
-		if err != nil {
-			return true
-		}
-		loc, err := time.LoadLocation(zone)
-		if err != nil {
-			return true
-		}
-		if now.In(loc).Format("2006-01-02") <= t.Date {
+		if TargetDue(t, now, zoneOf) {
 			return true
 		}
 	}
