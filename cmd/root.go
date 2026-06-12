@@ -23,7 +23,6 @@ var (
 	flagCurrency string
 	flagVerbose  bool
 	flagReauth   bool
-	flagUseTLS   bool
 	cfgFile      string
 )
 
@@ -76,7 +75,6 @@ func init() {
 	pf.StringVar(&flagCurrency, "currency", "", "preferred display currency")
 	pf.BoolVarP(&flagVerbose, "verbose", "v", false, "verbose logging")
 	pf.BoolVar(&flagReauth, "reauth", true, "on an anti-bot block, re-run the browser auth and retry once")
-	pf.BoolVar(&flagUseTLS, "use-tls-client", false, "use a Chrome-fingerprinted TLS client for HTTP (anti-bot workaround; also via CSAIR_USE_TLS_CLIENT)")
 	pf.StringVar(&cfgFile, "config", "", "config file (default ~/.config/csair/config.toml)")
 
 	// Turn flag-parse errors into typed usage errors with a help hint.
@@ -86,9 +84,6 @@ func init() {
 
 	cobra.OnInitialize(initConfig)
 	_ = viper.BindPFlag("currency", pf.Lookup("currency"))
-	// Bind via viper too so the monitor can opt in with CSAIR_USE_TLS_CLIENT=1
-	// (env), with an explicit --use-tls-client flag still taking precedence.
-	_ = viper.BindPFlag("use-tls-client", pf.Lookup("use-tls-client"))
 }
 
 func initConfig() {
@@ -100,16 +95,9 @@ func initConfig() {
 		viper.SetConfigType("toml")
 	}
 	viper.SetEnvPrefix("CSAIR")
-	// Map dashed keys to underscored env names, e.g. CSAIR_USE_TLS_CLIENT.
-	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
 	viper.AutomaticEnv()
 	_ = viper.ReadInConfig()
 }
-
-// useTLSClient reports whether the Chrome-fingerprinted TLS transport is selected,
-// via --use-tls-client or CSAIR_USE_TLS_CLIENT (flag wins). Read through viper so
-// the env form works for the monitor without a passed flag.
-func useTLSClient() bool { return viper.GetBool("use-tls-client") }
 
 // verboseTransportOpts returns the transport options that enable per-request
 // logging when --verbose (-v) is set, so interactive `search -v` narrates its

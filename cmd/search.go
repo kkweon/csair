@@ -151,11 +151,9 @@ func doSearch(ctx context.Context, tok auth.Token, req domain.SearchRequest) (*d
 
 // newQueryService wires a paced transport + parser + catalog for one session.
 // opts tune the transport (e.g. transport.WithPacing for the monitor's run-wide
-// throttle); with none it keeps the interactive-search default pacing. The
-// transport implementation (stdlib vs Chrome-fingerprinted TLS) follows
-// useTLSClient, so every command honors --use-tls-client / CSAIR_USE_TLS_CLIENT.
+// throttle); with none it keeps the interactive-search default pacing.
 func newQueryService(tok auth.Token, opts ...transport.Option) (ita.QueryService, error) {
-	hc, err := transport.NewRequester(tok, useTLSClient(), opts...)
+	hc, err := transport.New(tok, opts...)
 	if err != nil {
 		return nil, err
 	}
