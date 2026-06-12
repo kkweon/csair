@@ -35,6 +35,11 @@ jobs:
   # targets. Runs on every schedule slot and on manual dispatch.
   status:
     runs-on: ubuntu-latest
+    # Use the Chrome-fingerprinted TLS transport from the datacenter runner IP,
+    # where Go's stdlib fingerprint is most likely to draw the anti-bot captcha.
+    # Revert by deleting this env block; the CLI still works without it.
+    env:
+      CSAIR_USE_TLS_CLIENT: "1"
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
