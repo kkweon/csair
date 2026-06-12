@@ -2,8 +2,8 @@ name: seat-monitor
 
 # Watches the routes/dates in monitor.toml for business-class seat availability
 # and emails a STATUS digest — ONE combined email of the current business-class
-# seat counts across all targets — four times a day (morning / lunch /
-# afternoon / evening, PT) plus on manual dispatch. No diffing or snapshot
+# seat counts across all targets — on the schedule below plus on manual
+# dispatch. No diffing or snapshot
 # commits; that path lives in `csair report diff` / report-mail.sh diff for
 # manual/local use.
 #
@@ -18,17 +18,8 @@ name: seat-monitor
 
 on:
   schedule:
-    # Status digest at 08:17 / 12:17 / 16:17 / 20:17 America/Los_Angeles
-    # (morning / lunch / afternoon / evening). The :17 minute avoids the
-    # congested top-of-hour (GitHub may delay schedule runs under load); the
-    # timezone field is DST-aware, so these stay at local PT year-round.
-    - cron: "17 8 * * *"
-      timezone: "America/Los_Angeles"
-    - cron: "17 12 * * *"
-      timezone: "America/Los_Angeles"
-    - cron: "17 16 * * *"
-      timezone: "America/Los_Angeles"
-    - cron: "17 20 * * *"
+    # Off-hour minute avoids the congested top-of-hour; the timezone field is DST-aware.
+    - cron: "17 */4 * * *"
       timezone: "America/Los_Angeles"
   workflow_dispatch:        # runs a status digest now
 
@@ -41,7 +32,7 @@ concurrency:
 
 jobs:
   # Current-status digest: one combined email of business seats across all
-  # targets. Runs on every schedule slot (08/12/16/20 PT) and on manual dispatch.
+  # targets. Runs on every schedule slot and on manual dispatch.
   status:
     runs-on: ubuntu-latest
     steps:
