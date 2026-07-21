@@ -24,3 +24,8 @@ flights = ["CZ660"]   # 1-stop through-flight SFO–WUH–CAN; tracked by flight
 from = "SFO"
 to   = "CAN"
 date = "2026-06-17"   # nonstop CZ658 (default nonstop-only filter)
+
+[[monitor.targets]]
+from = "CAN"
+to   = "SFO"
+date = "2026-08-04"   # nonstop CZ657 (23:20 dep), CAN→SFO return of CZ658
