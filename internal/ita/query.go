@@ -13,7 +13,10 @@ import (
 
 const (
 	baseURL  = "https://b2c.csair.com"
-	appURL   = baseURL + "/ita/intl/app"
+	// Session create. The engine moved this under /ita/rest in Jul 2026; the old
+	// /ita/intl/app now 404s (it resolves to a mainland path that no longer
+	// exists). The new endpoint takes the same form body but answers JSON.
+	appURL   = baseURL + "/ita/rest/intl/app"
 	queryURL = baseURL + "/ita/rest/intl/main/aoa/inter/queryInterFlight"
 )
 
