@@ -27,14 +27,25 @@ func NewParser() ParseService { return parser{} }
 
 var execRe = regexp.MustCompile(`execution=([a-f0-9]+)`)
 
-// Execution pulls the flow execution token out of the /ita/intl/app HTML,
-// which contains a JS redirect to `.../shop/?execution=<EXEC>`.
-func (parser) Execution(appHTML []byte) (string, error) {
-	m := execRe.FindSubmatch(appHTML)
-	if m == nil {
-		return "", fmt.Errorf("%w: no execution token in app response", clierr.ErrUpstream)
+// Execution pulls the flow execution token out of the session-create response.
+//
+// The current /ita/rest/intl/app answers JSON ({"data":{"execution":"…"}}). The
+// older /ita/intl/app served HTML carrying a JS redirect to
+// `.../shop/?execution=<EXEC>`; the regex path is kept as a fallback so a
+// response in either shape still yields a token.
+func (parser) Execution(app []byte) (string, error) {
+	var resp struct {
+		Data struct {
+			Execution string `json:"execution"`
+		} `json:"data"`
 	}
-	return string(m[1]), nil
+	if err := json.Unmarshal(app, &resp); err == nil && resp.Data.Execution != "" {
+		return resp.Data.Execution, nil
+	}
+	if m := execRe.FindSubmatch(app); m != nil {
+		return string(m[1]), nil
+	}
+	return "", fmt.Errorf("%w: no execution token in app response", clierr.ErrUpstream)
 }
 
 // Flights maps the queryInterFlight grid into domain itineraries.

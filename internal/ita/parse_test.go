@@ -29,6 +29,24 @@ func TestExecution(t *testing.T) {
 	}
 }
 
+func TestExecutionJSON(t *testing.T) {
+	// Shape returned by the current /ita/rest/intl/app.
+	body := []byte(`{"success":true,"data":{"flag":false,"language":"zh","execution":"38a57ba36c7b15e11a8535d4369171a6","isFlightLabel":true},"version":"","server":""}`)
+	got, err := NewParser().Execution(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "38a57ba36c7b15e11a8535d4369171a6"; got != want {
+		t.Fatalf("execution = %q, want %q", got, want)
+	}
+}
+
+func TestExecutionMissing(t *testing.T) {
+	if _, err := NewParser().Execution([]byte(`{"success":true,"data":{}}`)); err == nil {
+		t.Fatal("expected an error when no execution token is present")
+	}
+}
+
 func TestSegVias(t *testing.T) {
 	if v := segVias(dtoSegment{Legs: []dtoLeg{{DepPort: "SFO", ArrPort: "CAN"}}}); v != nil {
 		t.Errorf("single-leg vias = %v, want nil", v)

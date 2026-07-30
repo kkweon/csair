@@ -146,10 +146,11 @@ one JSON call, including the `bookingClassAvails` field (seats per RBD).
 ## API flow
 
 ```
-# 1. Create a search session -> HTML containing  .../zh/shop/?execution=<EXEC>
-POST https://b2c.csair.com/ita/intl/app            (application/x-www-form-urlencoded)
+# 1. Create a search session -> JSON  {"data":{"execution":"<EXEC>"}}
+POST https://b2c.csair.com/ita/rest/intl/app       (application/x-www-form-urlencoded)
      language=zh&country=zh&m=0&flexible=1&adt=1&cnn=0&inf=0
      &dep[]=SFO&arr[]=CAN&depArea[]=US&arrArea[]=CN&date[]=YYYY-MM-DD
+# (was /ita/intl/app, which served the token in HTML; it 404s since Jul 2026)
 
 # 2. Query flights -> JSON
 POST https://b2c.csair.com/ita/rest/intl/main/aoa/inter/queryInterFlight   (application/json)
