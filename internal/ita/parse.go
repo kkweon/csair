@@ -1,6 +1,7 @@
 package ita
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -55,7 +56,7 @@ func (parser) Flights(grid []byte) ([]domain.Itinerary, error) {
 		return nil, fmt.Errorf("%w: decode grid: %v", clierr.ErrUpstream, err)
 	}
 	if !resp.Success {
-		msg := resp.ErrMsg
+		msg := cmp.Or(resp.ErrorMsg, resp.ErrMsg)
 		if msg == "" {
 			// No errMsg: surface the raw body so the failure is diagnosable.
 			msg = truncate(string(grid), 500)

@@ -163,3 +163,10 @@ func TestFlights_FailureWithoutErrMsgShowsBody(t *testing.T) {
 		t.Fatalf("err = %v, want raw body in message", err)
 	}
 }
+
+func TestFlights_FailureUsesErrorMsg(t *testing.T) {
+	_, err := NewParser().Flights([]byte(`{"success":false,"errorCode":"0000","errorMsg":"ITA查询异常，反馈信息：result.data为null"}`))
+	if err == nil || !strings.HasSuffix(err.Error(), "engine reported failure: ITA查询异常，反馈信息：result.data为null") {
+		t.Fatalf("err = %v, want errorMsg text", err)
+	}
+}
