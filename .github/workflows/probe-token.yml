@@ -7,6 +7,16 @@ name: probe-token
 
 on:
   workflow_dispatch:
+    inputs:
+      from:
+        description: "Origin airport"
+        default: "SFO"
+      to:
+        description: "Destination airport"
+        default: "CAN"
+      date:
+        description: "Departure date YYYY-MM-DD (blank = 21 days from today)"
+        default: ""
 
 jobs:
   probe:
@@ -41,9 +51,14 @@ jobs:
           echo "auth_exit=$auth_rc"
           echo "::endgroup::"
 
+          FROM="${{ inputs.from || 'SFO' }}"
+          TO="${{ inputs.to || 'CAN' }}"
+          DATE="${{ inputs.date }}"
+          [ -n "$DATE" ] || DATE="$(date -u -d '+21 days' +%F)"
+
           if [ "$auth_rc" -eq 0 ]; then
-            echo "::group::csair search SFO CAN 2026-06-10 --cabin business --direct"
-            ./csair search SFO CAN 2026-06-10 --cabin business --direct --json --no-bootstrap -v > out.json 2> search.err
+            echo "::group::csair search $FROM $TO $DATE --direct"
+            ./csair search "$FROM" "$TO" "$DATE" --direct --json --no-bootstrap -v > out.json 2> search.err
             search_rc=$?
             echo "search_exit=$search_rc"
             echo "----- stderr -----"; cat search.err
