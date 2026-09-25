@@ -63,7 +63,7 @@ jobs:
               search_rc=$?
               echo "search_exit=$search_rc"
               echo "----- stderr -----"; cat search.err
-              echo "----- stdout (head) -----"; head -c 2000 out.json
+              echo "----- stdout -----"; cat out.json
               echo "::endgroup::"
             done
           else

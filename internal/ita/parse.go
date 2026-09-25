@@ -58,8 +58,8 @@ func (parser) Flights(grid []byte) ([]domain.Itinerary, error) {
 	if !resp.Success {
 		msg := cmp.Or(resp.ErrorMsg, resp.ErrMsg)
 		if msg == "" {
-			// No errMsg: surface the raw body so the failure is diagnosable.
-			msg = truncate(string(grid), 500)
+			// No error text: surface the raw body so the failure is diagnosable.
+			msg = string(grid)
 		}
 		return nil, fmt.Errorf("%w: engine reported failure: %s", clierr.ErrUpstream, msg)
 	}
@@ -252,12 +252,4 @@ func lowestPrice(prices []dtoPrice) domain.Money {
 		}
 	}
 	return m
-}
-
-// truncate caps s at n bytes, marking the cut.
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "…"
 }
