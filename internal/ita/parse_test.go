@@ -3,6 +3,7 @@ package ita
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -153,5 +154,19 @@ func TestFlights_SFOCAN(t *testing.T) {
 	}
 	if eco.Seats != 9 || !eco.AtLeast {
 		t.Errorf("Economy seats = %d (atLeast=%v), want 9 (true, capped)", eco.Seats, eco.AtLeast)
+	}
+}
+
+func TestFlights_FailureWithoutErrMsgShowsBody(t *testing.T) {
+	_, err := NewParser().Flights([]byte(`{"success":false,"errMsg":"","code":"E42"}`))
+	if err == nil || !strings.Contains(err.Error(), `"code":"E42"`) {
+		t.Fatalf("err = %v, want raw body in message", err)
+	}
+}
+
+func TestFlights_FailureUsesErrorMsg(t *testing.T) {
+	_, err := NewParser().Flights([]byte(`{"success":false,"errorCode":"0000","errorMsg":"ITA查询异常，反馈信息：result.data为null"}`))
+	if err == nil || !strings.HasSuffix(err.Error(), "engine reported failure: ITA查询异常，反馈信息：result.data为null") {
+		t.Fatalf("err = %v, want errorMsg text", err)
 	}
 }

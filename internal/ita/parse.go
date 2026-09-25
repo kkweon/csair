@@ -1,6 +1,7 @@
 package ita
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -55,7 +56,12 @@ func (parser) Flights(grid []byte) ([]domain.Itinerary, error) {
 		return nil, fmt.Errorf("%w: decode grid: %v", clierr.ErrUpstream, err)
 	}
 	if !resp.Success {
-		return nil, fmt.Errorf("%w: engine reported failure: %s", clierr.ErrUpstream, resp.ErrMsg)
+		msg := cmp.Or(resp.ErrorMsg, resp.ErrMsg)
+		if msg == "" {
+			// No error text: surface the raw body so the failure is diagnosable.
+			msg = string(grid)
+		}
+		return nil, fmt.Errorf("%w: engine reported failure: %s", clierr.ErrUpstream, msg)
 	}
 	dfs := resp.Data.Data.DateFlights
 	if len(dfs) == 0 {

@@ -4,9 +4,12 @@ package ita
 // purpose — only ParseService touches them; the rest of the app uses domain.*.
 
 type queryResponse struct {
-	Success bool      `json:"success"`
-	ErrMsg  string    `json:"errMsg"`
-	Data    queryData `json:"data"`
+	Success bool   `json:"success"`
+	ErrMsg  string `json:"errMsg"`
+	// errorMsg is where the engine currently puts the failure text
+	// (e.g. "ITA查询异常，反馈信息：result.data为null"); errMsg is kept for older responses.
+	ErrorMsg string    `json:"errorMsg"`
+	Data     queryData `json:"data"`
 }
 
 type queryData struct {
