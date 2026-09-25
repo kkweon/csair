@@ -3,6 +3,7 @@ package ita
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -153,5 +154,12 @@ func TestFlights_SFOCAN(t *testing.T) {
 	}
 	if eco.Seats != 9 || !eco.AtLeast {
 		t.Errorf("Economy seats = %d (atLeast=%v), want 9 (true, capped)", eco.Seats, eco.AtLeast)
+	}
+}
+
+func TestFlights_FailureWithoutErrMsgShowsBody(t *testing.T) {
+	_, err := NewParser().Flights([]byte(`{"success":false,"errMsg":"","code":"E42"}`))
+	if err == nil || !strings.Contains(err.Error(), `"code":"E42"`) {
+		t.Fatalf("err = %v, want raw body in message", err)
 	}
 }

@@ -55,7 +55,12 @@ func (parser) Flights(grid []byte) ([]domain.Itinerary, error) {
 		return nil, fmt.Errorf("%w: decode grid: %v", clierr.ErrUpstream, err)
 	}
 	if !resp.Success {
-		return nil, fmt.Errorf("%w: engine reported failure: %s", clierr.ErrUpstream, resp.ErrMsg)
+		msg := resp.ErrMsg
+		if msg == "" {
+			// No errMsg: surface the raw body so the failure is diagnosable.
+			msg = truncate(string(grid), 500)
+		}
+		return nil, fmt.Errorf("%w: engine reported failure: %s", clierr.ErrUpstream, msg)
 	}
 	dfs := resp.Data.Data.DateFlights
 	if len(dfs) == 0 {
@@ -246,4 +251,12 @@ func lowestPrice(prices []dtoPrice) domain.Money {
 		}
 	}
 	return m
+}
+
+// truncate caps s at n bytes, marking the cut.
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }
