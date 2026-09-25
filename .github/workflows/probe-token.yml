@@ -18,6 +18,9 @@ on:
         description: "Departure date(s) YYYY-MM-DD, comma-separated (blank = 21 days from today)"
         default: ""
 
+permissions:
+  contents: read
+
 jobs:
   probe:
     runs-on: ubuntu-latest
@@ -43,6 +46,10 @@ jobs:
         run: go build -o csair .
 
       - name: Probe auth + search (never fails the job)
+        env:
+          PROBE_FROM: ${{ inputs.from }}
+          PROBE_TO: ${{ inputs.to }}
+          PROBE_DATES: ${{ inputs.date }}
         run: |
           set +e
           echo "::group::csair auth"
@@ -51,9 +58,9 @@ jobs:
           echo "auth_exit=$auth_rc"
           echo "::endgroup::"
 
-          FROM="${{ inputs.from || 'SFO' }}"
-          TO="${{ inputs.to || 'CAN' }}"
-          DATES="${{ inputs.date }}"
+          FROM="${PROBE_FROM:-SFO}"
+          TO="${PROBE_TO:-CAN}"
+          DATES="$PROBE_DATES"
           [ -n "$DATES" ] || DATES="$(date -u -d '+21 days' +%F)"
 
           if [ "$auth_rc" -eq 0 ]; then
