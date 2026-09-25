@@ -14,7 +14,7 @@ name: seat-monitor
 # PREREQUISITE: confirm a runner can mint the anti-bot token (probe-token). If
 # the WAF blocks the runner, use the local-cron fallback (CSAIR_LOCAL_EMAIL=1).
 #
-# Required repo secrets: GMAIL_USER, GMAIL_APP_PASSWORD, NOTIFY_TO. Optional: NOTIFY_CC.
+# Required repo secrets: GMAIL_USER, GMAIL_APP_PASSWORD, NOTIFY_TO (sole recipient; no Cc).
 
 on:
   schedule:
@@ -65,6 +65,5 @@ jobs:
           password: ${{ secrets.GMAIL_APP_PASSWORD }}
           from: csair monitor <${{ secrets.GMAIL_USER }}>
           to: ${{ secrets.NOTIFY_TO }}
-          cc: ${{ secrets.NOTIFY_CC }}
           subject: ${{ steps.run.outputs.subject }}
           body: file://${{ steps.run.outputs.body_file }}

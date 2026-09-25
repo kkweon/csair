@@ -41,3 +41,20 @@ from = "CAN"
 to   = "SFO"
 date = "2026-08-06"
 flights = ["CZ659"]   # 1-stop through-flight CAN–WUH–SFO (19:20 dep); tracked by flight key
+
+# Parents-in-law arrival candidates (CAN→SFO), tentative.
+[[monitor.targets]]
+from = "CAN"
+to   = "SFO"
+date = "2026-10-01"
+flights = ["CZ659"]   # 1-stop through-flight CAN–WUH–SFO (19:20 dep); tracked by flight key
+
+[[monitor.targets]]
+from = "CAN"
+to   = "SFO"
+date = "2026-10-03"   # nonstop CZ657 (23:20 dep)
+
+[[monitor.targets]]
+from = "CAN"
+to   = "SFO"
+date = "2026-10-06"   # nonstop CZ657 (23:20 dep)
