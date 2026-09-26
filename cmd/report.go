@@ -363,19 +363,15 @@ func newReportService(ctx context.Context) (ita.QueryService, tokenInfo, error) 
 	if err != nil {
 		return nil, tokenInfo{}, err
 	}
-	qs, err := newQueryService(tok, reportTransportOpts()...)
-	if err != nil {
-		return nil, tokenInfo{}, err
-	}
-	return qs, info, nil
-}
-
-func reportTransportOpts() []transport.Option {
 	opts := []transport.Option{transport.WithPacing(reportMinGap, reportJitter)}
 	if reportOut != "" {
 		opts = append(opts, transport.WithVerbose(os.Stdout))
 	}
-	return opts
+	qs, err := newQueryService(tok, opts...)
+	if err != nil {
+		return nil, tokenInfo{}, err
+	}
+	return qs, info, nil
 }
 
 // searchTarget runs a direct, business-only search for one target on the shared,
