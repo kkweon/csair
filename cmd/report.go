@@ -126,17 +126,17 @@ func runReportStatus(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	run, tok, err := newReportRunner(ctx, log)
+	qs, tok, err := newReportService(ctx)
 	if err != nil {
 		return err
 	}
 	log.logf("token: %s", tokenLine(tok))
 
 	var failures []monitor.Failure
-	for i, t := range due {
+	for _, t := range due {
 		summary.Checked++
 		tr := targetResult{From: t.From, To: t.To, Date: t.Date}
-		res, err := run.search(ctx, i, t)
+		res, err := searchTarget(ctx, qs, t, log)
 		if err != nil {
 			summary.Failed++
 			tr.Outcome, tr.Error = "failed", err.Error()
@@ -211,16 +211,16 @@ func runReportDiff(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	run, tok, err := newReportRunner(ctx, log)
+	qs, tok, err := newReportService(ctx)
 	if err != nil {
 		return err
 	}
 	log.logf("token: %s", tokenLine(tok))
 
-	for i, t := range due {
+	for _, t := range due {
 		summary.Checked++
 		tr := targetResult{From: t.From, To: t.To, Date: t.Date}
-		res, err := run.search(ctx, i, t)
+		res, err := searchTarget(ctx, qs, t, log)
 		if err != nil {
 			summary.Failed++
 			tr.Outcome, tr.Error = "failed", err.Error()
@@ -376,83 +376,6 @@ func reportTransportOpts() []transport.Option {
 		opts = append(opts, transport.WithVerbose(os.Stdout))
 	}
 	return opts
-}
-
-// Between targets the run waits reportTargetGap; after an anti-bot block it
-// waits reportRetryPause, mints a fresh browser token and retries that target
-// once. Observed 2026-09-25/26: the WAF answers the third back-to-back search
-// of a run with "need captcha" (CZWEB000010) regardless of the date, while a
-// fresh session's first search succeeds.
-const (
-	reportTargetGap  = 15 * time.Second
-	reportRetryPause = 20 * time.Second
-	reportMaxReauths = 2
-)
-
-// reportRunner searches targets on one shared service, pacing between targets
-// and recovering from anti-bot blocks by re-minting the token.
-type reportRunner struct {
-	qs        ita.QueryService
-	reauth    func(ctx context.Context, t monitor.Target) (ita.QueryService, error)
-	targetGap time.Duration
-	pause     time.Duration
-	reauths   int
-	log       rlogger
-}
-
-func newReportRunner(ctx context.Context, log rlogger) (*reportRunner, tokenInfo, error) {
-	qs, info, err := newReportService(ctx)
-	if err != nil {
-		return nil, tokenInfo{}, err
-	}
-	return &reportRunner{
-		qs: qs, log: log, targetGap: reportTargetGap, pause: reportRetryPause,
-		reauth: func(ctx context.Context, t monitor.Target) (ita.QueryService, error) {
-			tok, err := reauthToken(ctx, strings.ToUpper(t.From), strings.ToUpper(t.To))
-			if err != nil {
-				return nil, err
-			}
-			return newQueryService(tok, reportTransportOpts()...)
-		},
-	}, info, nil
-}
-
-// search runs target i: it waits targetGap before every target but the first,
-// and on an anti-bot block re-mints the token and retries once (at most
-// reportMaxReauths times per run).
-func (r *reportRunner) search(ctx context.Context, i int, t monitor.Target) (*domain.SearchResult, error) {
-	if i > 0 {
-		if err := sleepCtx(ctx, r.targetGap); err != nil {
-			return nil, err
-		}
-	}
-	res, err := searchTarget(ctx, r.qs, t, r.log)
-	if err == nil || !errors.Is(err, clierr.ErrBlocked) || r.reauth == nil || r.reauths >= reportMaxReauths {
-		return res, err
-	}
-	r.reauths++
-	r.log.logf("%s→%s %s: blocked (%v) — waiting %s, minting a fresh token, retrying once", t.From, t.To, t.Date, err, r.pause)
-	if serr := sleepCtx(ctx, r.pause); serr != nil {
-		return nil, serr
-	}
-	qs, rerr := r.reauth(ctx, t)
-	if rerr != nil {
-		return nil, fmt.Errorf("%w (re-auth failed: %v)", err, rerr)
-	}
-	r.qs = qs
-	return searchTarget(ctx, r.qs, t, r.log)
-}
-
-func sleepCtx(ctx context.Context, d time.Duration) error {
-	if d <= 0 {
-		return nil
-	}
-	select {
-	case <-time.After(d):
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
 }
 
 // searchTarget runs a direct, business-only search for one target on the shared,

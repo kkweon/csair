@@ -4,16 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"testing"
 	"time"
 
 	"github.com/spf13/viper"
 
-	"github.com/kkweon/csair/internal/clierr"
 	"github.com/kkweon/csair/internal/domain"
-	"github.com/kkweon/csair/internal/ita"
 	"github.com/kkweon/csair/internal/monitor"
 )
 
@@ -329,72 +325,4 @@ func equalStrings(a, b []string) bool {
 		}
 	}
 	return true
-}
-
-// seqQS returns the queued errors in order, then res.
-type seqQS struct {
-	errs  []error
-	res   *domain.SearchResult
-	calls int
-}
-
-func (s *seqQS) Search(_ context.Context, _ domain.SearchRequest) (*domain.SearchResult, error) {
-	s.calls++
-	if len(s.errs) > 0 {
-		err := s.errs[0]
-		s.errs = s.errs[1:]
-		return nil, err
-	}
-	return s.res, nil
-}
-
-func TestReportRunnerReauthsOnBlock(t *testing.T) {
-	ok := &domain.SearchResult{Itineraries: []domain.Itinerary{
-		priced(100, 0, []domain.Segment{seg("CZ", "657", "CAN", "SFO")}, bizPriced(6, 100)),
-	}}
-	blocked := &seqQS{errs: []error{fmt.Errorf("%w: status 400", clierr.ErrBlocked)}}
-	fresh := &seqQS{res: ok}
-	reauths := 0
-	r := &reportRunner{qs: blocked, reauth: func(context.Context, monitor.Target) (ita.QueryService, error) {
-		reauths++
-		return fresh, nil
-	}}
-	res, err := r.search(context.Background(), 0, monitor.Target{From: "CAN", To: "SFO", Date: "2026-10-06"})
-	if err != nil {
-		t.Fatalf("search: %v", err)
-	}
-	if reauths != 1 || fresh.calls != 1 || len(res.Itineraries) != 1 {
-		t.Errorf("reauths=%d freshCalls=%d itineraries=%d, want 1/1/1", reauths, fresh.calls, len(res.Itineraries))
-	}
-}
-
-func TestReportRunnerNoRetryOnEngineError(t *testing.T) {
-	qs := &seqQS{errs: []error{fmt.Errorf("%w: engine reported failure", clierr.ErrUpstream)}}
-	r := &reportRunner{qs: qs, reauth: func(context.Context, monitor.Target) (ita.QueryService, error) {
-		t.Fatal("reauth called for a non-block error")
-		return nil, nil
-	}}
-	if _, err := r.search(context.Background(), 0, monitor.Target{From: "CAN", To: "SFO", Date: "2026-10-01"}); !errors.Is(err, clierr.ErrUpstream) {
-		t.Fatalf("err = %v, want ErrUpstream", err)
-	}
-}
-
-func TestReportRunnerCapsReauths(t *testing.T) {
-	blockErr := fmt.Errorf("%w: status 400", clierr.ErrBlocked)
-	reauths := 0
-	always := func() *seqQS { return &seqQS{errs: []error{blockErr, blockErr, blockErr, blockErr, blockErr}} }
-	r := &reportRunner{
-		qs: always(),
-		reauth: func(context.Context, monitor.Target) (ita.QueryService, error) {
-			reauths++
-			return always(), nil
-		},
-	}
-	tgt := monitor.Target{From: "CAN", To: "SFO", Date: "2026-10-06"}
-	for range 4 {
-		_, _ = r.search(context.Background(), 0, tgt)
-	}
-	if reauths != reportMaxReauths {
-		t.Errorf("reauths = %d, want cap %d", reauths, reportMaxReauths)
-	}
 }

@@ -44,7 +44,7 @@ var debugCaptureCmd = &cobra.Command{
 			fmt.Printf("=== #%d %s %s -> %d (%d bytes)\n", i+1, x.Method, x.URL, x.Status, len(x.Body))
 			fmt.Printf("request body:\n%s\n", x.PostData)
 			if captureOut != "" {
-				base := filepath.Join(captureOut, fmt.Sprintf("%02d-%s", i+1, filepath.Base(x.URL)))
+				base := filepath.Join(captureOut, fmt.Sprintf("%02d-%s", i+1, filepath.Base(strings.SplitN(x.URL, "?", 2)[0])))
 				_ = os.WriteFile(base+".request.txt", []byte(x.PostData), 0o644)
 				_ = os.WriteFile(base+".response.json", []byte(x.Body), 0o644)
 			}
