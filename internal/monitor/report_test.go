@@ -122,7 +122,7 @@ func TestStatusBodyAnnotatesConnection(t *testing.T) {
 			{Flights: []string{"CZ658"}, Stops: 0,
 				Cabins: []Cabin{{Cabin: "business", Seats: 4}}},
 		}}
-	got := StatusBody([]Snapshot{s}, fixedNow)
+	got := StatusBody([]Snapshot{s}, nil, fixedNow)
 	if !strings.Contains(got, "9 seats  (1-stop via WUH)") {
 		t.Errorf("missing annotated connection line:\n%s", got)
 	}
@@ -317,7 +317,7 @@ SFO → CAN  ·  2026-06-14  ·  Business
   CZ400:         ⚠️ NO SEATS
   Book: https://b2c.csair.com/ita/intl/zh/flights?flex=1&m=0&p=100&t=SFO-CAN-20260614&egs=ITA,ITA&open=1
 `
-	if got := StatusBody([]Snapshot{a, b}, fixedNow); got != want {
+	if got := StatusBody([]Snapshot{a, b}, nil, fixedNow); got != want {
 		t.Errorf("StatusBody mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}
 }
@@ -327,4 +327,22 @@ func ptrStr(p *int) string {
 		return "nil"
 	}
 	return strconv.Itoa(*p)
+}
+
+func TestStatusBodyListsFailures(t *testing.T) {
+	a := biz("CAN", "SFO", "2026-10-03", []flightSeats{{"CZ657", 6}})
+	fails := []Failure{{Origin: "CAN", Destination: "SFO", Date: "2026-10-01", Reason: "engine reported failure: x"}}
+	want := `All business seats now  ·  As of 2026-06-03 09:07 PDT
+
+CAN → SFO  ·  2026-10-03  ·  Business
+  CZ657:         6 seats
+  Book: https://b2c.csair.com/ita/intl/zh/flights?flex=1&m=0&p=100&t=CAN-SFO-20261003&egs=ITA,ITA&open=1
+
+CAN → SFO  ·  2026-10-01  ·  ⚠️ COULD NOT CHECK
+  Reason: engine reported failure: x
+  Book: https://b2c.csair.com/ita/intl/zh/flights?flex=1&m=0&p=100&t=CAN-SFO-20261001&egs=ITA,ITA&open=1
+`
+	if got := StatusBody([]Snapshot{a}, fails, fixedNow); got != want {
+		t.Errorf("StatusBody mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
 }

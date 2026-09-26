@@ -17,6 +17,10 @@ on:
       date:
         description: "Departure date(s) YYYY-MM-DD, comma-separated (blank = 21 days from today)"
         default: ""
+      report:
+        description: "Also run the monitor digest (csair report status) without emailing"
+        type: boolean
+        default: false
       capture:
         description: "Also record the requests CZ's own booking page sends (csair debug capture)"
         type: boolean
@@ -86,6 +90,18 @@ jobs:
           echo "  auth_exit=0 AND search returns itineraries  -> runner can mint; build monitor.yml"
           echo "  auth_exit=5 / 'blocked' / 'no session cookies' -> use local-cron fallback"
           echo "=========================================="
+          exit 0
+
+      - name: Monitor digest dry run (no email)
+        if: inputs.report
+        run: |
+          set +e
+          ./csair report status --config monitor.toml --out report.json
+          echo "report_exit=$?"
+          echo "----- email body -----"
+          jq -r '.body' report.json
+          echo "----- summary -----"
+          jq -c '.summary' report.json
           exit 0
 
       - name: Capture site requests

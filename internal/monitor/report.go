@@ -192,7 +192,7 @@ func ChangeDigest(items []DiffItem, now time.Time) string {
 // StatusBody renders the combined current-status digest: one "as of" stamp,
 // then a per-date section (header, full seat map, booking link) for every
 // snapshot. One email covers all monitored dates/routes.
-func StatusBody(snaps []Snapshot, now time.Time) string {
+func StatusBody(snaps []Snapshot, failures []Failure, now time.Time) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "All business seats now  ·  %s\n", asOfLine(now))
 	for _, s := range snaps {
@@ -201,7 +201,20 @@ func StatusBody(snaps []Snapshot, now time.Time) string {
 		writeSeatLines(&b, s)
 		fmt.Fprintf(&b, "  Book: %s\n", BookingURL(s.Origin, s.Destination, s.Date))
 	}
+	for _, f := range failures {
+		fmt.Fprintln(&b)
+		fmt.Fprintf(&b, "%s → %s  ·  %s  ·  ⚠️ COULD NOT CHECK\n", f.Origin, f.Destination, f.Date)
+		fmt.Fprintf(&b, "  Reason: %s\n", f.Reason)
+		fmt.Fprintf(&b, "  Book: %s\n", BookingURL(f.Origin, f.Destination, f.Date))
+	}
 	return b.String()
+}
+
+// Failure is a monitored target whose search failed this run; the status
+// digest lists it so a missing date is never silent.
+type Failure struct {
+	Origin, Destination, Date string
+	Reason                    string
 }
 
 // --- rendering helpers ---
