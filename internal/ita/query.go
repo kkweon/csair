@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	baseURL  = "https://b2c.csair.com"
+	baseURL = "https://b2c.csair.com"
 	// Session create. The engine moved this under /ita/rest in Jul 2026; the old
 	// /ita/intl/app now 404s (it resolves to a mainland path that no longer
 	// exists). The new endpoint takes the same form body but answers JSON.
@@ -105,5 +105,7 @@ func queryBody(req domain.SearchRequest, execution string, page int) any {
 		"flightType": "singlePass",
 		"execution":  execution,
 		"page":       page,
+		// Sent by the live booking page (captured 2026-09-26).
+		"useRuleConfigMaxStopCountIfParamTwo": false,
 	}
 }
