@@ -203,6 +203,7 @@ func (c *Client) do(req *fhttp.Request) ([]byte, error) {
 	logf(c.logw, "http: %s %s -> %d (%d bytes, %s)", req.Method, req.URL, resp.StatusCode, len(b), time.Since(start).Round(time.Millisecond))
 	if cerr := classifyStatus(resp.StatusCode, b); cerr != nil {
 		logBlockOrUpstream(c.logw, req.URL.String(), resp.StatusCode, cerr)
+		logf(c.logw, "http: response body: %s", b)
 		return nil, cerr
 	}
 	return b, nil

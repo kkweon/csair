@@ -17,6 +17,10 @@ on:
       date:
         description: "Departure date(s) YYYY-MM-DD, comma-separated (blank = 21 days from today)"
         default: ""
+      capture:
+        description: "Also record the requests CZ's own booking page sends (csair debug capture)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -83,3 +87,31 @@ jobs:
           echo "  auth_exit=5 / 'blocked' / 'no session cookies' -> use local-cron fallback"
           echo "=========================================="
           exit 0
+
+      - name: Capture site requests
+        if: inputs.capture
+        env:
+          PROBE_FROM: ${{ inputs.from }}
+          PROBE_TO: ${{ inputs.to }}
+          PROBE_DATES: ${{ inputs.date }}
+        run: |
+          set +e
+          FROM="${PROBE_FROM:-SFO}"
+          TO="${PROBE_TO:-CAN}"
+          DATES="$PROBE_DATES"
+          [ -n "$DATES" ] || DATES="$(date -u -d '+21 days' +%F)"
+          for DATE in ${DATES//,/ }; do
+            echo "::group::csair debug capture $FROM $TO $DATE"
+            ./csair debug capture "$FROM" "$TO" "$DATE" --out "capture/$FROM-$TO-$DATE"
+            echo "capture_exit=$?"
+            echo "::endgroup::"
+          done
+          exit 0
+
+      - name: Upload captures
+        if: inputs.capture
+        uses: actions/upload-artifact@v4
+        with:
+          name: capture
+          path: capture/
+          if-no-files-found: warn
