@@ -43,11 +43,19 @@ date = "2026-08-06"
 flights = ["CZ659"]   # 1-stop through-flight CAN–WUH–SFO (19:20 dep); tracked by flight key
 
 # Parents-in-law arrival (CAN→SFO): 10/05 per Jia; 10/06 is the standby fallback.
+# CZ659 is a CAN–WUH–SFO through-flight, but a CAN→SFO query on its days
+# returns "result.data为null", so watch each leg separately.
 [[monitor.targets]]
 from = "CAN"
+to   = "WUH"
+date = "2026-10-05"
+flights = ["CZ659"]   # leg 1, CAN 19:20 → WUH 21:05
+
+[[monitor.targets]]
+from = "WUH"
 to   = "SFO"
 date = "2026-10-05"
-flights = ["CZ659", "CZ657"]   # Monday: CZ659 via WUH (19:20) and/or nonstop CZ657 (23:20); both land 20:40
+flights = ["CZ659"]   # leg 2, WUH 23:40 → SFO 20:40 PDT
 
 [[monitor.targets]]
 from = "CAN"
