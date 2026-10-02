@@ -18,6 +18,9 @@ import (
 type ParseService interface {
 	Execution(appHTML []byte) (string, error)
 	Flights(grid []byte) ([]domain.Itinerary, error)
+	// NeedsStopQuery reports whether the grid asks for the second, connections
+	// query (the booking page's secondStopFlag).
+	NeedsStopQuery(grid []byte) bool
 }
 
 // parser is the default ParseService.
@@ -47,6 +50,19 @@ func (parser) Execution(app []byte) (string, error) {
 		return string(m[1]), nil
 	}
 	return "", fmt.Errorf("%w: no execution token in app response", clierr.ErrUpstream)
+}
+
+// NeedsStopQuery mirrors the booking page: re-query with the rule's stop cap
+// when the engine allows 2 stops but applied fewer to this query. It holds
+// even when the first query failed (a day with no nonstop answers
+// "result.data为null" alongside the config).
+func (parser) NeedsStopQuery(grid []byte) bool {
+	var resp queryResponse
+	if err := json.Unmarshal(grid, &resp); err != nil {
+		return false
+	}
+	c := resp.Data.Data.FlightStopCountConfig
+	return c.RuleConfigMaxStopCount == "2" && c.CurrentMaxStopCount != "2"
 }
 
 // Flights maps the queryInterFlight grid into domain itineraries.

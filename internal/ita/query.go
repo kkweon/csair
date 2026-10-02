@@ -49,15 +49,29 @@ func (q *queryService) Search(ctx context.Context, req domain.SearchRequest) (*d
 	if err != nil {
 		return nil, err
 	}
-	grid, err := q.http.PostJSON(ctx, queryURL, queryBody(req, exec, 1))
+	grid, err := q.http.PostJSON(ctx, queryURL, queryBody(req, exec, 1, false))
 	if err != nil {
 		return nil, fmt.Errorf("query flights: %w", err)
 	}
 	its, err := q.parse.Flights(grid)
-	if err != nil {
-		return nil, err
+	if !q.parse.NeedsStopQuery(grid) {
+		if err != nil {
+			return nil, err
+		}
+		return &domain.SearchResult{Request: req, Itineraries: its}, nil
 	}
-	return &domain.SearchResult{Request: req, Itineraries: its}, nil
+
+	// Second pass, as the booking page does: the first query only returned
+	// nonstops, so fetch the connections and append them.
+	grid2, err2 := q.http.PostJSON(ctx, queryURL, queryBody(req, exec, 1, true))
+	if err2 != nil {
+		return nil, fmt.Errorf("query connecting flights: %w", err2)
+	}
+	more, err2 := q.parse.Flights(grid2)
+	if err != nil && err2 != nil {
+		return nil, err2
+	}
+	return &domain.SearchResult{Request: req, Itineraries: append(its, more...)}, nil
 }
 
 // appForm builds the /ita/intl/app body. Only codes + area (country) are
@@ -87,8 +101,9 @@ func (q *queryService) appForm(req domain.SearchRequest) (url.Values, error) {
 	}, nil
 }
 
-// queryBody builds the queryInterFlight JSON body.
-func queryBody(req domain.SearchRequest, execution string, page int) any {
+// queryBody builds the queryInterFlight JSON body. stops=false is the booking
+// page's first query (nonstops); stops=true is its follow-up for connections.
+func queryBody(req domain.SearchRequest, execution string, page int, stops bool) any {
 	return map[string]any{
 		"adults":       max(req.Pax.Adults, 1),
 		"children":     req.Pax.Children,
@@ -105,7 +120,8 @@ func queryBody(req domain.SearchRequest, execution string, page int) any {
 		"flightType": "singlePass",
 		"execution":  execution,
 		"page":       page,
-		// Sent by the live booking page (captured 2026-09-26).
-		"useRuleConfigMaxStopCountIfParamTwo": false,
+
+		// The booking page sends false, then true for its connections pass.
+		"useRuleConfigMaxStopCountIfParamTwo": stops,
 	}
 }

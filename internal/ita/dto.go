@@ -17,7 +17,17 @@ type queryData struct {
 }
 
 type queryInner struct {
-	DateFlights []dtoDateFlight `json:"dateFlights"`
+	DateFlights           []dtoDateFlight `json:"dateFlights"`
+	FlightStopCountConfig dtoStopCount    `json:"flightStopCountConfig"`
+}
+
+// dtoStopCount is the engine's connection cap for this query. Since Sep 2026 a
+// first query answers with currentMaxStopCount "0" (nonstops only) while
+// ruleConfigMaxStopCount is "2"; the booking page then re-queries with
+// useRuleConfigMaxStopCountIfParamTwo=true to get the 1- and 2-stop results.
+type dtoStopCount struct {
+	RuleConfigMaxStopCount string `json:"ruleConfigMaxStopCount"`
+	CurrentMaxStopCount    string `json:"currentMaxStopCount"`
 }
 
 type dtoDateFlight struct {
